@@ -17,12 +17,8 @@ from ctxtual.utils import paginator, text_search
 # 1. Create forge
 forge = Forge(store=MemoryStore())
 
-# 2. Create toolsets
-pager  = paginator(forge, "items")
-search = text_search(forge, "items")
-
-# 3. Register a producer
-@forge.producer(workspace_type="items", toolsets=[pager, search])
+# 2. Register a producer (toolsets get their name from workspace_type automatically)
+@forge.producer(workspace_type="items", toolsets=[paginator(forge), text_search(forge)])
 def load_data(source: str) -> list[dict]:
     """Load data from a source.
 
@@ -38,7 +34,7 @@ def load_data(source: str) -> list[dict]:
     ]
 
 
-# 4. Your agent loop
+# 3. Your agent loop
 def agent_loop(user_message: str):
     """
     Minimal agent loop pattern.

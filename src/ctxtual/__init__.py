@@ -13,10 +13,10 @@ Quick start::
 
     forge = Forge(store=MemoryStore())
 
-    pager  = paginator(forge, "papers")
-    search = text_search(forge, "papers", fields=["title", "abstract"])
-
-    @forge.producer(workspace_type="papers", toolsets=[pager, search])
+    @forge.producer(workspace_type="papers", toolsets=[
+        paginator(forge),
+        text_search(forge, fields=["title", "abstract"]),
+    ])
     def fetch_papers(query: str, limit: int = 10_000):
         return database.search(query, limit)
 
@@ -35,7 +35,7 @@ from ctxtual.exceptions import (
 )
 from ctxtual.forge import ConsumerContext, Forge
 from ctxtual.store import BaseStore, MemoryStore, SQLiteStore
-from ctxtual.toolset import BoundToolSet, ToolSet
+from ctxtual.toolset import BoundToolSet, ToolSet, ToolSpec
 from ctxtual.transforms import chunk_text, split_markdown_sections, split_sections
 from ctxtual.types import WorkspaceMeta, WorkspaceRef
 
@@ -45,6 +45,7 @@ __all__ = [
     "ConsumerContext",
     # ToolSet
     "ToolSet",
+    "ToolSpec",
     "BoundToolSet",
     # Stores
     "BaseStore",
@@ -67,4 +68,4 @@ __all__ = [
     "ToolExecutionError",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"

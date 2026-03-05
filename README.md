@@ -53,7 +53,7 @@ def search_papers(query: str) -> list[dict]:
     return database.search(query)  # 10,000 results → LLM chokes
 
 # After: data is stored, agent gets a map
-@forge.producer(workspace_type="papers", toolsets=[pager, search, filters])
+@forge.producer(workspace_type="papers", toolsets=[paginator(forge), search, filters])
 def search_papers(query: str) -> list[dict]:
     return database.search(query)  # 10,000 results → stored in workspace
     # Agent receives:
@@ -96,14 +96,13 @@ from ctxtual.utils import paginator, text_search, filter_set, pipeline
 
 forge = Forge(store=MemoryStore())
 
-# Create consumer toolsets — the tools the agent uses to explore stored data
-pager   = paginator(forge, "papers")
-search  = text_search(forge, "papers", fields=["title", "abstract"])
-filters = filter_set(forge, "papers")
-pipe    = pipeline(forge, "papers")  # compound operations in one call
-
-# Wrap your data-fetching function as a producer
-@forge.producer(workspace_type="papers", toolsets=[pager, search, filters, pipe])
+# Wrap your data-fetching function — toolsets get their name from workspace_type
+@forge.producer(workspace_type="papers", toolsets=[
+    paginator(forge),
+    text_search(forge, fields=["title", "abstract"]),
+    filter_set(forge),
+    pipeline(forge),
+])
 def search_papers(query: str, limit: int = 10_000) -> list[dict]:
     return database.search(query, limit)
 
@@ -308,7 +307,16 @@ Schemas include:
 
 ## Built-in ToolSets
 
-These cover 90% of what agents need. Import them, wire them to a producer, done. They share the ToolSet when given the same name, so `paginator(forge, "papers")` + `pipeline(forge, "papers")` adds all tools to one ToolSet.
+These cover 90% of what agents need. Import them, pass to `@producer`, done. The `name` parameter is **optional** — when omitted, the toolset inherits its name from the producer's `workspace_type`:
+
+```python
+# Simple — name inferred from workspace_type:
+@forge.producer(workspace_type="papers", toolsets=[paginator(forge), text_search(forge)])
+def fetch(query): ...
+
+# Explicit — still works for advanced use:
+pager = paginator(forge, "papers")
+```
 
 ### `paginator(forge, name)` — List Navigation
 
@@ -913,7 +921,7 @@ uv run python examples/01_quickstart.py
 ## Testing
 
 ```bash
-uv run pytest tests/ -v          # 452 tests
+uv run pytest tests/ -v          # 456 tests
 uv run ruff check src/ tests/    # Lint
 ```
 

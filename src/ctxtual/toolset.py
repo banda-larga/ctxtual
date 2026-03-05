@@ -330,6 +330,43 @@ class ToolSet:
         return f"ToolSet(name={self.name!r}, tools={self.tool_names})"
 
 
+class ToolSpec:
+    """
+    Deferred toolset — created when a factory is called without a name.
+
+    Materialized into a real :class:`ToolSet` when bound to a
+    ``workspace_type`` by :meth:`Forge.producer`.
+
+    Usage::
+
+        from ctxtual.utils import paginator, text_search
+
+        @forge.producer("papers", toolsets=[
+            paginator(forge),
+            text_search(forge, fields=["title"]),
+        ])
+        def fetch(query: str): ...
+    """
+
+    def __init__(
+        self,
+        factory: Callable[..., "ToolSet"],
+        forge: Any,
+        **kwargs: Any,
+    ) -> None:
+        self._factory = factory
+        self._forge = forge
+        self._kwargs = kwargs
+
+    def materialize(self, name: str) -> "ToolSet":
+        """Create the real ToolSet by calling the factory with the given name."""
+        return self._factory(self._forge, name, **self._kwargs)
+
+    def __repr__(self) -> str:
+        kw = ", ".join(f"{k}={v!r}" for k, v in self._kwargs.items())
+        return f"ToolSpec({self._factory.__name__}{', ' + kw if kw else ''})"
+
+
 class BoundToolSet:
     """
     A ToolSet with a fixed ``workspace_id`` — every tool is partially applied.

@@ -45,6 +45,7 @@ from ctxtual.store.base import BaseStore
 from ctxtual.store.memory import MemoryStore
 from ctxtual.toolset import (
     ToolSet,
+    ToolSpec,
     _build_param_description,
     _extract_param_descriptions,
     _python_type_to_json_schema,
@@ -146,7 +147,7 @@ class Forge:
         fn: Callable[..., Any] | None = None,
         *,
         workspace_type: str,
-        toolsets: list[ToolSet] | ToolSet | None = None,
+        toolsets: list[ToolSet | ToolSpec] | ToolSet | ToolSpec | None = None,
         key: str | KeyFactory | None = None,
         transform: ResultTransformer | None = None,
         meta: dict[str, Any] | None = None,
@@ -186,13 +187,20 @@ class Forge:
         """
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            _raw: list[ToolSet] = (
-                [toolsets] if isinstance(toolsets, ToolSet) else (toolsets or [])
+            _raw: list[ToolSet | ToolSpec] = (
+                [toolsets]
+                if isinstance(toolsets, (ToolSet, ToolSpec))
+                else (toolsets or [])
             )
+            # Materialize any ToolSpecs into real ToolSets
+            _materialized: list[ToolSet] = [
+                ts.materialize(workspace_type) if isinstance(ts, ToolSpec) else ts
+                for ts in _raw
+            ]
             # Deduplicate by identity
             seen: set[int] = set()
             _toolsets: list[ToolSet] = []
-            for ts in _raw:
+            for ts in _materialized:
                 if id(ts) not in seen:
                     seen.add(id(ts))
                     _toolsets.append(ts)

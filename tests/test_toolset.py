@@ -234,3 +234,81 @@ class TestOutputHint:
         assert "{workspace_id}" not in result["_hint"]
         # Original data is preserved in "result" key
         assert result["result"] == {"items": []}
+
+
+class TestToolSpec:
+    """Test the deferred ToolSpec pattern (name-less factory calls)."""
+
+    def test_spec_materializes_on_producer(self, forge: Forge) -> None:
+        from ctxtual.utils import paginator, text_search
+
+        spec_pager = paginator(forge)
+        spec_search = text_search(forge, fields=["title"])
+
+        # ToolSpecs, not ToolSets
+        from ctxtual.toolset import ToolSpec
+
+        assert isinstance(spec_pager, ToolSpec)
+        assert isinstance(spec_search, ToolSpec)
+
+        @forge.producer(workspace_type="papers", toolsets=[spec_pager, spec_search])
+        def fetch(query: str) -> list:
+            return [{"title": "ML Paper", "year": 2024}]
+
+        ref = fetch("test")
+        assert ref["workspace_id"]
+        tools_str = str(ref["available_tools"])
+        assert "papers_paginate" in tools_str
+        assert "papers_search" in tools_str
+
+    def test_spec_reuse_across_producers(self, forge: Forge) -> None:
+        from ctxtual.utils import paginator
+
+        spec = paginator(forge)
+
+        @forge.producer(workspace_type="papers", toolsets=[spec])
+        def fetch_papers() -> list:
+            return [{"title": "Paper A"}]
+
+        @forge.producer(workspace_type="docs", toolsets=[spec])
+        def fetch_docs() -> list:
+            return [{"title": "Doc B"}]
+
+        ref1 = fetch_papers()
+        ref2 = fetch_docs()
+        assert "papers_paginate" in str(ref1["available_tools"])
+        assert "docs_paginate" in str(ref2["available_tools"])
+
+    def test_spec_dispatch_tool_call(self, forge: Forge) -> None:
+        from ctxtual.utils import paginator
+
+        @forge.producer(workspace_type="items", toolsets=[paginator(forge)])
+        def load() -> list:
+            return [{"x": 1}, {"x": 2}, {"x": 3}]
+
+        ref = load()
+        result = forge.dispatch_tool_call("items_paginate", {"workspace_id": ref["workspace_id"]})
+        assert result["result"]["total"] == 3
+
+    def test_explicit_name_still_works(self, forge: Forge) -> None:
+        from ctxtual.utils import paginator
+
+        pager = paginator(forge, "things")
+        assert isinstance(pager, ToolSet)
+
+        @forge.producer(workspace_type="things", toolsets=[pager])
+        def fetch() -> list:
+            return [1, 2]
+
+        ref = fetch()
+        assert "things_paginate" in str(ref["available_tools"])
+
+    def test_spec_repr(self) -> None:
+        from ctxtual.utils import paginator
+        from ctxtual.toolset import ToolSpec
+
+        forge = Forge()
+        spec = paginator(forge)
+        r = repr(spec)
+        assert "ToolSpec" in r
+        assert "paginator" in r
