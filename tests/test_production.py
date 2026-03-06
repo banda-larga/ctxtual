@@ -8,7 +8,7 @@ Tests for production-readiness features:
   - Context manager protocol
   - Store.clear() and sweep_expired()
   - MemoryStore max_workspaces eviction
-  - Forge.dispatch_tool_call()
+  - Ctx.dispatch_tool_call()
   - WorkspaceRef.to_compact()
 """
 
@@ -17,9 +17,9 @@ import time
 
 import pytest
 
-from ctxtual import Forge, MemoryStore, SQLiteStore, WorkspaceExpiredError
+from ctxtual import Ctx, MemoryStore, SQLiteStore, WorkspaceExpiredError
 from ctxtual.exceptions import PayloadTooLargeError
-from ctxtual.forge import ConsumerContext
+from ctxtual.ctx import ConsumerContext
 from ctxtual.toolset import ToolSet
 from ctxtual.types import WorkspaceMeta, WorkspaceRef
 
@@ -85,50 +85,50 @@ class TestTTL:
         store.close()
 
     def test_producer_with_ttl(self) -> None:
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
 
-        @forge.producer(workspace_type="data", ttl=3600)
+        @ctx.producer(workspace_type="data", ttl=3600)
         def load() -> list:
             return [1, 2, 3]
 
         result = load()
-        meta = forge.workspace_meta(result["workspace_id"])
+        meta = ctx.workspace_meta(result["workspace_id"])
         assert meta is not None
         assert meta.ttl == 3600
 
     def test_producer_inherits_default_ttl(self) -> None:
-        forge = Forge(store=MemoryStore(), default_ttl=600)
+        ctx = Ctx(store=MemoryStore(), default_ttl=600)
 
-        @forge.producer(workspace_type="data")
+        @ctx.producer(workspace_type="data")
         def load() -> list:
             return [1]
 
         result = load()
-        meta = forge.workspace_meta(result["workspace_id"])
+        meta = ctx.workspace_meta(result["workspace_id"])
         assert meta is not None
         assert meta.ttl == 600
 
     def test_producer_ttl_overrides_default(self) -> None:
-        forge = Forge(store=MemoryStore(), default_ttl=600)
+        ctx = Ctx(store=MemoryStore(), default_ttl=600)
 
-        @forge.producer(workspace_type="data", ttl=60)
+        @ctx.producer(workspace_type="data", ttl=60)
         def load() -> list:
             return [1]
 
         result = load()
-        meta = forge.workspace_meta(result["workspace_id"])
+        meta = ctx.workspace_meta(result["workspace_id"])
         assert meta is not None
         assert meta.ttl == 60
 
     def test_producer_ttl_none_overrides_default(self) -> None:
-        forge = Forge(store=MemoryStore(), default_ttl=600)
+        ctx = Ctx(store=MemoryStore(), default_ttl=600)
 
-        @forge.producer(workspace_type="data", ttl=None)
+        @ctx.producer(workspace_type="data", ttl=None)
         def load() -> list:
             return [1]
 
         result = load()
-        meta = forge.workspace_meta(result["workspace_id"])
+        meta = ctx.workspace_meta(result["workspace_id"])
         assert meta is not None
         assert meta.ttl is None
 
@@ -154,8 +154,8 @@ class TestTTL:
         assert store.get_meta("fresh") is not None
 
     def test_forge_sweep_expired(self) -> None:
-        forge = Forge(store=MemoryStore())
-        forge.store.init_workspace(
+        ctx = Ctx(store=MemoryStore())
+        ctx.store.init_workspace(
             WorkspaceMeta(
                 workspace_id="old",
                 workspace_type="data",
@@ -163,12 +163,12 @@ class TestTTL:
                 ttl=1,
             )
         )
-        dropped = forge.sweep_expired()
+        dropped = ctx.sweep_expired()
         assert "old" in dropped
 
     def test_tool_on_expired_workspace_raises(self) -> None:
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("data")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("data")
 
         @ts.tool
         def read(workspace_id: str) -> list:
@@ -180,8 +180,8 @@ class TestTTL:
             created_at=time.time() - 100,
             ttl=1,
         )
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_old", [1, 2, 3])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_old", [1, 2, 3])
 
         with pytest.raises(WorkspaceExpiredError):
             read("ws_old")
@@ -192,15 +192,15 @@ class TestTTL:
 
 class TestErrorBoundaries:
     def test_safe_tool_catches_runtime_errors(self) -> None:
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("data")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("data")
 
         @ts.tool
         def bad_tool(workspace_id: str) -> list:
             raise ValueError("something broke")
 
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
+        ctx.store.init_workspace(meta)
 
         result = bad_tool("ws_1")
         assert "error" in result
@@ -208,8 +208,8 @@ class TestErrorBoundaries:
         assert result["tool"] == "bad_tool"
 
     def test_safe_tool_propagates_workspace_errors(self) -> None:
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("data")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("data")
 
         @ts.tool
         def read(workspace_id: str) -> list:
@@ -222,30 +222,30 @@ class TestErrorBoundaries:
             read("nonexistent")
 
     def test_unsafe_tool_propagates_all_errors(self) -> None:
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
         ts = ToolSet("data", safe=False)
-        forge.register_toolset(ts)
+        ctx.register_toolset(ts)
 
         @ts.tool
         def bad_tool(workspace_id: str) -> list:
             raise ValueError("should propagate")
 
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
+        ctx.store.init_workspace(meta)
 
         with pytest.raises(ValueError, match="should propagate"):
             bad_tool("ws_1")
 
     def test_safe_tool_includes_workspace_id_in_error(self) -> None:
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("data")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("data")
 
         @ts.tool
         def divide(workspace_id: str, divisor: int = 0) -> float:
             return 1 / divisor
 
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
+        ctx.store.init_workspace(meta)
 
         result = divide("ws_1", divisor=0)
         assert result["workspace_id"] == "ws_1"
@@ -256,9 +256,9 @@ class TestErrorBoundaries:
 
 class TestAsyncSupport:
     def test_async_producer(self) -> None:
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
 
-        @forge.producer(workspace_type="data")
+        @ctx.producer(workspace_type="data")
         async def async_load() -> list:
             await asyncio.sleep(0)
             return [1, 2, 3]
@@ -267,12 +267,12 @@ class TestAsyncSupport:
         assert result["status"] == "workspace_ready"
         assert result["item_count"] == 3
         ws_id = result["workspace_id"]
-        assert forge.store.get_items(ws_id) == [1, 2, 3]
+        assert ctx.store.get_items(ws_id) == [1, 2, 3]
 
     def test_async_producer_with_transform(self) -> None:
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
 
-        @forge.producer(
+        @ctx.producer(
             workspace_type="data",
             transform=lambda items: [x * 10 for x in items],
         )
@@ -281,15 +281,15 @@ class TestAsyncSupport:
 
         result = asyncio.get_event_loop().run_until_complete(async_load())
         ws_id = result["workspace_id"]
-        assert forge.store.get_items(ws_id) == [10, 20, 30]
+        assert ctx.store.get_items(ws_id) == [10, 20, 30]
 
     def test_async_consumer(self) -> None:
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_1", [10, 20, 30])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_1", [10, 20, 30])
 
-        @forge.consumer(workspace_type="data")
+        @ctx.consumer(workspace_type="data")
         async def async_process(
             workspace_id: str, forge_ctx: ConsumerContext
         ) -> list:
@@ -300,9 +300,9 @@ class TestAsyncSupport:
         assert result == [10, 20, 30]
 
     def test_async_producer_with_key(self) -> None:
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
 
-        @forge.producer(workspace_type="data", key="data_{category}")
+        @ctx.producer(workspace_type="data", key="data_{category}")
         async def async_load(category: str) -> list:
             return [1]
 
@@ -315,9 +315,9 @@ class TestAsyncSupport:
 
 class TestMaxItems:
     def test_max_items_enforced(self) -> None:
-        forge = Forge(store=MemoryStore(), max_items=10)
+        ctx = Ctx(store=MemoryStore(), max_items=10)
 
-        @forge.producer(workspace_type="data")
+        @ctx.producer(workspace_type="data")
         def load() -> list:
             return list(range(100))
 
@@ -327,9 +327,9 @@ class TestMaxItems:
         assert exc_info.value.limit == 10
 
     def test_max_items_allows_within_limit(self) -> None:
-        forge = Forge(store=MemoryStore(), max_items=100)
+        ctx = Ctx(store=MemoryStore(), max_items=100)
 
-        @forge.producer(workspace_type="data")
+        @ctx.producer(workspace_type="data")
         def load() -> list:
             return list(range(50))
 
@@ -337,9 +337,9 @@ class TestMaxItems:
         assert result["item_count"] == 50
 
     def test_max_items_none_means_unlimited(self) -> None:
-        forge = Forge(store=MemoryStore())  # max_items=None
+        ctx = Ctx(store=MemoryStore())  # max_items=None
 
-        @forge.producer(workspace_type="data")
+        @ctx.producer(workspace_type="data")
         def load() -> list:
             return list(range(100_000))
 
@@ -352,8 +352,8 @@ class TestMaxItems:
 
 class TestSchemaExport:
     def test_toolset_to_tool_schemas(self) -> None:
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("papers")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("papers")
 
         @ts.tool
         def paginate(workspace_id: str, page: int = 0, size: int = 10) -> list:
@@ -374,8 +374,8 @@ class TestSchemaExport:
         assert "page" not in params["required"]
 
     def test_toolset_schemas_with_workspace_id(self) -> None:
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("data")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("data")
 
         @ts.tool
         def read(workspace_id: str) -> list:
@@ -386,8 +386,8 @@ class TestSchemaExport:
         assert "ws_abc" in schemas[0]["function"]["description"]
 
     def test_bound_toolset_schemas(self) -> None:
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("data")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("data")
 
         @ts.tool
         def read(workspace_id: str) -> list:
@@ -399,9 +399,9 @@ class TestSchemaExport:
         assert "ws_123" in schemas[0]["function"]["description"]
 
     def test_forge_get_all_tool_schemas(self) -> None:
-        forge = Forge(store=MemoryStore())
-        ts1 = forge.toolset("papers")
-        ts2 = forge.toolset("employees")
+        ctx = Ctx(store=MemoryStore())
+        ts1 = ctx.toolset("papers")
+        ts2 = ctx.toolset("employees")
 
         @ts1.tool
         def search_papers(workspace_id: str, query: str) -> list:
@@ -413,29 +413,29 @@ class TestSchemaExport:
             """List employees."""
             return []
 
-        schemas = forge.get_all_tool_schemas()
+        schemas = ctx.get_all_tool_schemas()
         assert len(schemas) == 2
         names = {s["function"]["name"] for s in schemas}
         assert names == {"search_papers", "list_employees"}
 
     def test_dispatch_tool_call(self) -> None:
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("data")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("data")
 
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_1", [10, 20, 30])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_1", [10, 20, 30])
 
         @ts.tool
         def get_all(workspace_id: str) -> list:
             return ts.store.get_items(workspace_id)
 
-        result = forge.dispatch_tool_call("get_all", {"workspace_id": "ws_1"})
+        result = ctx.dispatch_tool_call("get_all", {"workspace_id": "ws_1"})
         assert result == [10, 20, 30]
 
     def test_dispatch_tool_call_unknown(self) -> None:
-        forge = Forge(store=MemoryStore())
-        result = forge.dispatch_tool_call("not_real", {})
+        ctx = Ctx(store=MemoryStore())
+        result = ctx.dispatch_tool_call("not_real", {})
         assert "error" in result
         assert "not_real" in result["error"]
         assert "suggested_action" in result
@@ -446,14 +446,14 @@ class TestSchemaExport:
 
 class TestContextManager:
     def test_forge_context_manager(self) -> None:
-        with Forge(store=MemoryStore()) as forge:
+        with Ctx(store=MemoryStore()) as ctx:
 
-            @forge.producer(workspace_type="data", key="ws_1")
+            @ctx.producer(workspace_type="data", key="ws_1")
             def load() -> list:
                 return [1]
 
             load()
-            assert forge.workspace_meta("ws_1") is not None
+            assert ctx.workspace_meta("ws_1") is not None
         # After __exit__, store.close() was called (no crash)
 
     def test_memory_store_context_manager(self) -> None:
@@ -499,16 +499,16 @@ class TestStoreClear:
         store.close()
 
     def test_forge_clear(self) -> None:
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
 
-        @forge.producer(workspace_type="data", key="ws_1")
+        @ctx.producer(workspace_type="data", key="ws_1")
         def load() -> list:
             return [1]
 
         load()
-        assert len(forge.list_workspaces()) == 1
-        forge.clear()
-        assert len(forge.list_workspaces()) == 0
+        assert len(ctx.list_workspaces()) == 1
+        ctx.clear()
+        assert len(ctx.list_workspaces()) == 0
 
 
 # MemoryStore max_workspaces eviction
@@ -621,8 +621,8 @@ class TestSQLiteTTL:
 class TestProductionIntegration:
     def test_full_flow_with_ttl_and_safe_tools(self) -> None:
         """End-to-end: produce with TTL, use safe tools, sweep expired."""
-        forge = Forge(store=MemoryStore(), default_ttl=3600)
-        ts = forge.toolset("items")
+        ctx = Ctx(store=MemoryStore(), default_ttl=3600)
+        ts = ctx.toolset("items")
 
         @ts.tool
         def get_all(workspace_id: str) -> list:
@@ -632,7 +632,7 @@ class TestProductionIntegration:
         def bad_tool(workspace_id: str) -> dict:
             raise RuntimeError("oops")
 
-        @forge.producer(workspace_type="items", toolsets=[ts])
+        @ctx.producer(workspace_type="items", toolsets=[ts])
         def load() -> list:
             return [{"name": "A"}, {"name": "B"}]
 
@@ -649,17 +649,17 @@ class TestProductionIntegration:
         assert "RuntimeError" in err["error"]
 
         # Schema export works
-        schemas = forge.get_all_tool_schemas(workspace_id=ws_id)
+        schemas = ctx.get_all_tool_schemas(workspace_id=ws_id)
         assert len(schemas) >= 2
 
         # Dispatch works
-        dispatched = forge.dispatch_tool_call("get_all", {"workspace_id": ws_id})
+        dispatched = ctx.dispatch_tool_call("get_all", {"workspace_id": ws_id})
         assert dispatched == items
 
     def test_schema_dispatch_roundtrip(self) -> None:
         """Simulate what happens in a real OpenAI function-calling loop."""
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("data")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("data")
 
         @ts.tool
         def count_items(workspace_id: str) -> dict:
@@ -667,7 +667,7 @@ class TestProductionIntegration:
             items = ts.store.get_items(workspace_id)
             return {"count": len(items)}
 
-        @forge.producer(workspace_type="data", toolsets=[ts], key="ws_main")
+        @ctx.producer(workspace_type="data", toolsets=[ts], key="ws_main")
         def load() -> list:
             return list(range(42))
 
@@ -675,7 +675,7 @@ class TestProductionIntegration:
         ws_id = result["workspace_id"]
 
         # 1. Get schemas (what you'd pass to the LLM)
-        schemas = forge.get_all_tool_schemas(workspace_id=ws_id)
+        schemas = ctx.get_all_tool_schemas(workspace_id=ws_id)
         assert any(s["function"]["name"] == "count_items" for s in schemas)
 
         # 2. Simulate LLM response
@@ -683,5 +683,5 @@ class TestProductionIntegration:
         tool_call_args = {"workspace_id": ws_id}
 
         # 3. Dispatch
-        output = forge.dispatch_tool_call(tool_call_name, tool_call_args)
+        output = ctx.dispatch_tool_call(tool_call_name, tool_call_args)
         assert output == {"count": 42}

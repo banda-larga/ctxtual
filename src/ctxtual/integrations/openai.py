@@ -1,24 +1,24 @@
 """
 OpenAI integration for ctx.
 
-Provides helpers that bridge ``forge.get_tools()`` / ``forge.dispatch_tool_call()``
+Provides helpers that bridge ``ctx.get_tools()`` / ``ctx.dispatch_tool_call()``
 with the OpenAI Chat Completions API.  Works with both the ``openai`` SDK
 response objects **and** raw dicts — no ``openai`` package import required.
 
 Typical usage::
 
     from openai import OpenAI
-    from ctxtual import Forge, MemoryStore
+    from ctxtual import Ctx, MemoryStore
     from ctxtual.integrations.openai import (
         to_openai_tools,
         handle_tool_calls,
         has_tool_calls,
     )
 
-    forge = Forge(store=MemoryStore())
+    ctx = Ctx(store=MemoryStore())
     client = OpenAI()
 
-    tools = to_openai_tools(forge)
+    tools = to_openai_tools(ctx)
     messages = [{"role": "user", "content": "Search for papers on AI"}]
 
     while True:
@@ -28,28 +28,26 @@ Typical usage::
         if not has_tool_calls(response):
             break
         messages.append(response.choices[0].message.model_dump())
-        messages.extend(handle_tool_calls(forge, response))
+        messages.extend(handle_tool_calls(ctx, response))
 """
-
-from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ctxtual.forge import Forge
+    from ctxtual.ctx import Ctx
 
 
 def to_openai_tools(
-    forge: Forge, *, workspace_id: str | None = None
+    ctx: "Ctx", *, workspace_id: str | None = None
 ) -> list[dict[str, Any]]:
     """
-    Export all forge tools in OpenAI function-calling format.
+    Export all ctx tools in OpenAI function-calling format.
 
-    This is an alias for ``forge.get_tools()`` — provided for symmetry
+    This is an alias for ``ctx.get_tools()`` — provided for symmetry
     with the other integration modules.
     """
-    return forge.get_tools(workspace_id=workspace_id)
+    return ctx.get_tools(workspace_id=workspace_id)
 
 
 def has_tool_calls(response: Any) -> bool:
@@ -77,17 +75,17 @@ def has_tool_calls(response: Any) -> bool:
 
 
 def handle_tool_calls(
-    forge: Forge,
+    ctx: "Ctx",
     response: Any,
     *,
     max_content_length: int | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Dispatch every tool call in *response* through the forge and return
+    Dispatch every tool call in *response* through the ctx and return
     ``role: "tool"`` messages ready to append to the conversation.
 
     Args:
-        forge:              The :class:`~ctx.Forge` instance.
+        ctx:              The :class:`~ctx.Ctx` instance.
         response:           An OpenAI ``ChatCompletion`` (SDK object or dict).
         max_content_length: If set, truncate each tool result string to this
                             many characters (useful for staying within token
@@ -106,7 +104,7 @@ def handle_tool_calls(
             args = json.loads(args)
 
         try:
-            result = forge.dispatch_tool_call(tc["name"], args)
+            result = ctx.dispatch_tool_call(tc["name"], args)
         except Exception as exc:
             result = {
                 "error": f"{type(exc).__name__}: {exc}",

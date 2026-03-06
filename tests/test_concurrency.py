@@ -4,22 +4,22 @@ import threading
 
 import pytest
 
-from ctxtual import Forge, MemoryStore, SQLiteStore
+from ctxtual import Ctx, MemoryStore, SQLiteStore
 from ctxtual.types import WorkspaceMeta
 from ctxtual.utils import paginator
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Forge-level thread safety
+# Ctx-level thread safety
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestForgeConcurrency:
     def test_concurrent_producer_calls(self):
         """Multiple threads calling producers simultaneously don't corrupt state."""
-        forge = Forge(store=MemoryStore())
-        paginator(forge, "docs")
+        ctx = Ctx(store=MemoryStore())
+        paginator(ctx, "docs")
 
-        @forge.producer(workspace_type="docs")
+        @ctx.producer(workspace_type="docs")
         def make_docs(query: str) -> list[dict]:
             return [{"q": query, "i": i} for i in range(10)]
 
@@ -44,17 +44,17 @@ class TestForgeConcurrency:
         # Each workspace should have 10 items
         for ref in results:
             wid = ref["workspace_id"]
-            items = forge.store.get_items(wid)
+            items = ctx.store.get_items(wid)
             assert len(items) == 10
 
     def test_concurrent_toolset_registration(self):
         """Concurrent toolset() calls don't lose toolsets."""
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
         errors: list[Exception] = []
 
         def register(name: str) -> None:
             try:
-                forge.toolset(name)
+                ctx.toolset(name)
             except Exception as e:
                 errors.append(e)
 
@@ -67,14 +67,14 @@ class TestForgeConcurrency:
             t.join()
 
         assert not errors
-        assert len(forge._toolsets) == 20
+        assert len(ctx._toolsets) == 20
 
     def test_concurrent_dispatch_and_produce(self):
         """Dispatch and produce can run concurrently without crashes."""
-        forge = Forge(store=MemoryStore())
-        pager = paginator(forge, "data")
+        ctx = Ctx(store=MemoryStore())
+        pager = paginator(ctx, "data")
 
-        @forge.producer(workspace_type="data", toolsets=[pager])
+        @ctx.producer(workspace_type="data", toolsets=[pager])
         def make_data(query: str) -> list[dict]:
             return [{"v": i} for i in range(5)]
 
@@ -87,7 +87,7 @@ class TestForgeConcurrency:
         def dispatcher() -> None:
             try:
                 for _ in range(10):
-                    forge.dispatch_tool_call(
+                    ctx.dispatch_tool_call(
                         "data_paginate",
                         {"workspace_id": wid, "page": 0, "size": 2},
                     )

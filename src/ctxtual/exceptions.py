@@ -1,11 +1,9 @@
 """ctx exceptions."""
 
-from __future__ import annotations
-
 from typing import Any
 
 
-class ContextForgeError(Exception):
+class CtxtualError(Exception):
     """Base exception for all ctx errors."""
 
     def to_llm_dict(self) -> dict[str, Any]:
@@ -16,7 +14,7 @@ class ContextForgeError(Exception):
         return {"error": str(self)}
 
 
-class WorkspaceNotFoundError(ContextForgeError):
+class WorkspaceNotFoundError(CtxtualError):
     """Raised when a workspace_id doesn't exist in the store."""
 
     def __init__(
@@ -45,7 +43,7 @@ class WorkspaceNotFoundError(ContextForgeError):
         return d
 
 
-class WorkspaceExpiredError(ContextForgeError):
+class WorkspaceExpiredError(CtxtualError):
     """Raised when a workspace exists but has exceeded its TTL."""
 
     def __init__(self, workspace_id: str, *, producer_fn: str = "") -> None:
@@ -62,9 +60,7 @@ class WorkspaceExpiredError(ContextForgeError):
             "workspace_id": self.workspace_id,
         }
         if self.producer_fn:
-            d["suggested_action"] = (
-                f"Re-run '{self.producer_fn}' to refresh the data."
-            )
+            d["suggested_action"] = f"Re-run '{self.producer_fn}' to refresh the data."
         else:
             d["suggested_action"] = (
                 "Re-run the producer tool that created this workspace to refresh it."
@@ -72,7 +68,7 @@ class WorkspaceExpiredError(ContextForgeError):
         return d
 
 
-class WorkspaceTypeMismatchError(ContextForgeError):
+class WorkspaceTypeMismatchError(CtxtualError):
     """Raised when a consumer tool is called with a workspace of the wrong type."""
 
     def __init__(
@@ -116,11 +112,11 @@ class WorkspaceTypeMismatchError(ContextForgeError):
         return d
 
 
-class ToolSetNotRegisteredError(ContextForgeError):
+class ToolSetNotRegisteredError(CtxtualError):
     """Raised when a producer references an unregistered toolset."""
 
 
-class PayloadTooLargeError(ContextForgeError):
+class PayloadTooLargeError(CtxtualError):
     """Raised when a producer result exceeds the configured max_items limit."""
 
     def __init__(self, count: int, limit: int) -> None:
@@ -128,11 +124,11 @@ class PayloadTooLargeError(ContextForgeError):
         self.limit = limit
         super().__init__(
             f"Producer returned {count:,} items, which exceeds the limit "
-            f"of {limit:,}. Increase max_items on the Forge or filter upstream."
+            f"of {limit:,}. Increase max_items on your Ctx instance or filter upstream."
         )
 
 
-class ToolExecutionError(ContextForgeError):
+class ToolExecutionError(CtxtualError):
     """
     Wraps an exception raised inside a consumer tool.
 

@@ -1,27 +1,27 @@
 """
-Forge — the central orchestrator for ctx.
+Ctx — the central orchestrator for ctxtual.
 
-Forge ties together:
+Ctx ties together:
 
-- A storage backend (any :class:`~ctx.store.base.BaseStore`)
-- One or more :class:`~ctx.toolset.ToolSet` instances (consumer tool groups)
+- A storage backend (any :class:`~ctxtual.store.base.BaseStore`)
+- One or more :class:`~ctxtual.toolset.ToolSet` instances (consumer tool groups)
 - Producer decorators that intercept large results, store them, and return
-  compact :class:`~ctx.types.WorkspaceRef` notifications to the agent.
+  compact :class:`~ctxtual.types.WorkspaceRef` notifications to the agent.
 
 Typical usage::
 
-    from ctxtual import Forge, MemoryStore
+    from ctxtual import Ctx, MemoryStore
 
-    forge = Forge(store=MemoryStore())
+    ctx = Ctx(store=MemoryStore())
 
-    papers = forge.toolset("papers")
+    papers = ctx.toolset("papers")
 
     @papers.tool
     def paginate(workspace_id: str, page: int = 0, size: int = 10):
         items = papers.store.get_items(workspace_id)
         return items[page * size : (page + 1) * size]
 
-    @forge.producer(workspace_type="papers", toolsets=[papers])
+    @ctx.producer(workspace_type="papers", toolsets=[papers])
     def search_papers(query: str, limit: int = 10_000):
         return db.search(query, limit)
 """
@@ -50,12 +50,7 @@ from ctxtual.toolset import (
     _extract_param_descriptions,
     _python_type_to_json_schema,
 )
-from ctxtual.types import (
-    KeyFactory,
-    ResultTransformer,
-    WorkspaceMeta,
-    WorkspaceRef,
-)
+from ctxtual.types import KeyFactory, ResultTransformer, WorkspaceMeta, WorkspaceRef
 
 logger = logging.getLogger("ctx")
 
@@ -83,7 +78,7 @@ class _SentinelType:
 _SENTINEL = _SentinelType()
 
 
-class Forge:
+class Ctx:
     """
     Central orchestrator for workspace-based context management.
 
@@ -122,7 +117,7 @@ class Forge:
 
     def toolset(self, name: str, *, enforce_type: bool = True) -> ToolSet:
         """
-        Create (or retrieve) a :class:`ToolSet` attached to this Forge.
+        Create (or retrieve) a :class:`ToolSet` attached to this Ctx.
 
         Always use this factory instead of constructing ``ToolSet()`` directly —
         it wires the store reference automatically.
@@ -134,7 +129,7 @@ class Forge:
             return self.register_toolset(ts)
 
     def register_toolset(self, toolset: ToolSet) -> ToolSet:
-        """Attach an externally-created ToolSet to this Forge."""
+        """Attach an externally-created ToolSet to this Ctx."""
         with self._lock:
             toolset._store = self.store
             self._toolsets[toolset.name] = toolset
@@ -176,13 +171,13 @@ class Forge:
             transform:      Optional callable to pre-process the return value
                             before storage.
             meta:           Extra key/value pairs for :attr:`WorkspaceMeta.extra`.
-            notify:         Override :attr:`Forge.default_notify` for this producer.
+            notify:         Override :attr:`Ctx.default_notify` for this producer.
             ttl:            Time-to-live in seconds for this workspace.
-                            Defaults to :attr:`Forge.default_ttl`.
+                            Defaults to :attr:`Ctx.default_ttl`.
 
         Can be used with or without parentheses::
 
-            @forge.producer(workspace_type="papers", toolsets=[pager])
+            @ctx.producer(workspace_type="papers", toolsets=[pager])
             def search(query: str): ...
         """
 
@@ -204,7 +199,7 @@ class Forge:
                 if id(ts) not in seen:
                     seen.add(id(ts))
                     _toolsets.append(ts)
-            # Wire toolsets to this forge if they aren't already
+            # Wire toolsets to this ctx if they aren't already
             for ts in _toolsets:
                 if ts._store is None:
                     self.register_toolset(ts)
@@ -285,14 +280,21 @@ class Forge:
                         if is_compatible:
                             compatible_tools.append(t_name)
                             if t_name in tool_descriptions:
-                                compatible_descriptions[t_name] = tool_descriptions[t_name]
+                                compatible_descriptions[t_name] = tool_descriptions[
+                                    t_name
+                                ]
 
                 # Warn only for toolsets where ZERO tools survived filtering
                 for ts in _toolsets:
                     ts_compatible = any(
                         t_name in compatible_tools for t_name in ts.tool_names
                     )
-                    if not ts_compatible and ts.data_shape and shape and ts.data_shape != shape:
+                    if (
+                        not ts_compatible
+                        and ts.data_shape
+                        and shape
+                        and ts.data_shape != shape
+                    ):
                         logger.warning(
                             "Producer '%s' returns %s data but toolset '%s' "
                             "expects %s data. None of its tools (%s) are "
@@ -368,8 +370,8 @@ class Forge:
 
         if fn is not None:
             raise TypeError(
-                "@forge.producer requires keyword arguments. "
-                "Use @forge.producer(workspace_type='...', ...) form."
+                "@ctx.producer requires keyword arguments. "
+                "Use @ctx.producer(workspace_type='...', ...) form."
             )
         return decorator
 
@@ -398,12 +400,12 @@ class Forge:
             produces_toolsets: ToolSets available on the derived workspace.
 
         The wrapped function receives a :class:`ConsumerContext` via a
-        parameter named ``forge_ctx`` (or any parameter annotated with
+        parameter named ``ctx`` (or any parameter annotated with
         ``ConsumerContext``).  No ``= None`` default is needed::
 
-            @forge.consumer(workspace_type="data")
-            def process(workspace_id: str, forge_ctx: ConsumerContext):
-                return forge_ctx.get_items()
+            @ctx.consumer(workspace_type="data")
+            def process(workspace_id: str, ctx: ConsumerContext):
+                return ctx.get_items()
 
         Works with both sync and async functions.
         """
@@ -411,12 +413,12 @@ class Forge:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             is_async = asyncio.iscoroutinefunction(func)
 
-            # Detect the forge_ctx parameter by name or ConsumerContext
+            # Detect the ctx parameter by name or ConsumerContext
             # annotation so the user doesn't need ``= None``.
             _orig_sig = inspect.signature(func)
             _ctx_param: str | None = None
             for pname, param in _orig_sig.parameters.items():
-                if pname == "forge_ctx" or param.annotation is ConsumerContext:
+                if pname in ("ctx", "forge_ctx") or param.annotation is ConsumerContext:
                     _ctx_param = pname
                     break
 
@@ -424,9 +426,7 @@ class Forge:
             # so callers don't need to supply it.
             if _ctx_param is not None:
                 _bind_params = [
-                    p
-                    for n, p in _orig_sig.parameters.items()
-                    if n != _ctx_param
+                    p for n, p in _orig_sig.parameters.items() if n != _ctx_param
                 ]
                 _bind_sig = _orig_sig.replace(parameters=_bind_params)
             else:
@@ -447,7 +447,7 @@ class Forge:
                         raise WorkspaceExpiredError(workspace_id)
 
                 ctx = ConsumerContext(
-                    forge=self,
+                    ctx=self,
                     input_workspace_id=workspace_id or "",
                     output_type=produces,
                     output_toolsets=(
@@ -520,7 +520,7 @@ class Forge:
         function-calling schemas.
 
         This is the main integration point: pass the output directly to
-        ``openai.chat.completions.create(tools=forge.get_all_tool_schemas())``.
+        ``openai.chat.completions.create(tools=ctx.get_all_tool_schemas())``.
 
         Raises:
             ValueError: if duplicate tool names are found across ToolSets.
@@ -551,7 +551,7 @@ class Forge:
         This eliminates the need for hand-written producer tool definitions.
         Combine with :meth:`get_all_tool_schemas` for a complete tool list::
 
-            tools = forge.get_producer_schemas() + forge.get_all_tool_schemas()
+            tools = ctx.get_producer_schemas() + ctx.get_all_tool_schemas()
         """
         schemas: list[dict[str, Any]] = []
         for name, info in self._producers.items():
@@ -612,7 +612,7 @@ class Forge:
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages,
-                tools=forge.get_tools(),
+                tools=ctx.get_tools(),
             )
 
         Returns OpenAI-compatible function-calling schemas.
@@ -635,7 +635,7 @@ class Forge:
 
         Usage::
 
-            SYSTEM = forge.system_prompt(
+            SYSTEM = ctx.system_prompt(
                 preamble="You are a research assistant."
             )
         """
@@ -769,9 +769,7 @@ class Forge:
                 return exc.to_llm_dict()
 
         # Collect all ToolSets that have this tool
-        matches = [
-            ts for ts in self._toolsets.values() if tool_name in ts._tools
-        ]
+        matches = [ts for ts in self._toolsets.values() if tool_name in ts._tools]
 
         if len(matches) == 1:
             return _execute(matches[0]._tools[tool_name])
@@ -826,12 +824,10 @@ class Forge:
         self.close()
 
     def __repr__(self) -> str:
-        return (
-            f"Forge(store={self.store!r}, " f"toolsets={list(self._toolsets.keys())})"
-        )
+        return f"Ctx(store={self.store!r}, " f"toolsets={list(self._toolsets.keys())})"
 
 
-# ConsumerContext — injected into @forge.consumer functions
+# ConsumerContext — injected into @ctx.consumer functions
 
 
 class ConsumerContext:
@@ -839,32 +835,32 @@ class ConsumerContext:
     Provides a consumer function with store access and the ability to
     produce a derived workspace from its results.
 
-    Injected automatically by :meth:`Forge.consumer` into the parameter
-    named ``forge_ctx`` (or annotated with ``ConsumerContext``).
+    Injected automatically by :meth:`Ctx.consumer` into the parameter
+    named ``ctx`` (or annotated with ``ConsumerContext``).
 
-    For direct use in tests, construct with just ``forge`` and
+    For direct use in tests, construct with ``ctx_instance`` and
     ``input_workspace_id``::
 
-        ctx = ConsumerContext(forge, "ws_1")
-        result = my_consumer.__wrapped__("ws_1", forge_ctx=ctx)
+        consumer_ctx = ConsumerContext(ctx_instance, "ws_1")
+        result = my_consumer.__wrapped__("ws_1", ctx=consumer_ctx)
     """
 
     def __init__(
         self,
-        forge: Forge,
+        ctx: Ctx,
         input_workspace_id: str = "",
         output_type: str | None = None,
         output_toolsets: list[ToolSet] | None = None,
     ) -> None:
-        self._forge = forge
+        self._ctx = ctx
         self.input_workspace_id = input_workspace_id
         self._output_type = output_type
         self._output_toolsets = output_toolsets or []
 
     @property
     def store(self) -> BaseStore:
-        """The Forge's storage backend."""
-        return self._forge.store
+        """The Ctx's storage backend."""
+        return self._ctx.store
 
     def get_items(self, workspace_id: str | None = None) -> Any:
         """
@@ -885,7 +881,7 @@ class ConsumerContext:
         """
         Store *payload* as a new workspace and return a ``WorkspaceRef`` dict.
 
-        Call this inside a ``@forge.consumer`` to produce a derived workspace
+        Call this inside a ``@ctx.consumer`` to produce a derived workspace
         from filtered / processed results.
         """
         out_type = workspace_type or self._output_type or "derived"
@@ -897,7 +893,7 @@ class ConsumerContext:
             workspace_id=ws_id,
             workspace_type=out_type,
             item_count=_count(payload),
-            ttl=ttl or self._forge.default_ttl,
+            ttl=ttl or self._ctx.default_ttl,
             data_shape=shape,
             extra=meta or {},
         )
@@ -984,9 +980,7 @@ def _infer_item_schema(
     return None
 
 
-def _schema_from_dicts(
-    items: list[dict[str, Any]], total: int
-) -> dict[str, Any]:
+def _schema_from_dicts(items: list[dict[str, Any]], total: int) -> dict[str, Any]:
     """Build a JSON Schema object from a sample of dicts."""
     field_types: dict[str, set[str]] = {}
     field_counts: dict[str, int] = {}

@@ -4,7 +4,7 @@ Shared test fixtures for ctx.
 
 import pytest
 
-from ctxtual import Forge, MemoryStore
+from ctxtual import Ctx, MemoryStore
 from ctxtual.store.sqlite import SQLiteStore
 
 # Sample data
@@ -74,16 +74,16 @@ def sqlite_memory_store() -> SQLiteStore:
     return SQLiteStore(":memory:")
 
 
-# Forge fixtures
+# Ctx fixtures
 
 
 @pytest.fixture
-def forge(memory_store: MemoryStore) -> Forge:
-    """Forge backed by MemoryStore."""
-    return Forge(store=memory_store)
+def ctx(memory_store: MemoryStore) -> Ctx:
+    """Ctx backed by MemoryStore."""
+    return Ctx(store=memory_store)
 
 
 @pytest.fixture
-def forge_sqlite(sqlite_memory_store: SQLiteStore) -> Forge:
-    """Forge backed by an in-memory SQLiteStore."""
-    return Forge(store=sqlite_memory_store)
+def forge_sqlite(sqlite_memory_store: SQLiteStore) -> Ctx:
+    """Ctx backed by an in-memory SQLiteStore."""
+    return Ctx(store=sqlite_memory_store)

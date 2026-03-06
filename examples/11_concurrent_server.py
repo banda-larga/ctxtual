@@ -7,7 +7,7 @@ Demonstrates thread safety, session isolation, and proper concurrent
 access patterns.
 
 This is what production deployment looks like: a stateless HTTP API
-where each request may trigger tool calls against the shared forge.
+where each request may trigger tool calls against the shared ctx.
 
 Prerequisites:
     pip install fastapi uvicorn
@@ -24,23 +24,23 @@ import threading
 import time
 import uuid
 
-from ctxtual import Forge, MemoryStore
+from ctxtual import Ctx, MemoryStore
 from ctxtual.utils import paginator, text_search
 
-# ── Setup: one Forge instance shared across all requests ─────────────────
+# Setup: one Ctx instance shared across all requests
 
 # MemoryStore is thread-safe (uses RLock internally).
 # For persistence across restarts, swap to SQLiteStore.
-forge = Forge(
+ctx = Ctx(
     store=MemoryStore(max_workspaces=1000),  # LRU eviction
     default_ttl=1800,  # 30 min TTL — auto-cleanup stale sessions
 )
 
-pager  = paginator(forge, "results")
-search = text_search(forge, "results", fields=["title", "description"])
+pager = paginator(ctx, "results")
+search = text_search(ctx, "results", fields=["title", "description"])
 
 
-@forge.producer(
+@ctx.producer(
     workspace_type="results",
     toolsets=[pager, search],
     # Each search gets a unique workspace (no key template = auto UUID)
@@ -55,18 +55,21 @@ def search_catalog(query: str, category: str = "all") -> list[dict]:
     # Simulate DB query
     time.sleep(0.01)  # Simulate latency
     return [
-        {"id": f"prod-{i}", "title": f"Result {i} for '{query}'",
-         "description": f"A product matching '{query}' in {category}",
-         "price": 10.0 + i * 5, "category": category}
+        {
+            "id": f"prod-{i}",
+            "title": f"Result {i} for '{query}'",
+            "description": f"A product matching '{query}' in {category}",
+            "price": 10.0 + i * 5,
+            "category": category,
+        }
         for i in range(50)
     ]
 
 
-# ── FastAPI app ──────────────────────────────────────────────────────────
+# FastAPI app
 
 try:
     from fastapi import FastAPI, HTTPException
-    from fastapi.responses import JSONResponse
     from pydantic import BaseModel
 
     app = FastAPI(title="ctx Demo API")
@@ -84,7 +87,7 @@ try:
     @app.get("/workspace/{workspace_id}/page/{page}")
     async def api_paginate(workspace_id: str, page: int = 0, size: int = 10):
         """Consumer endpoint: paginate stored results."""
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "results_paginate",
             {"workspace_id": workspace_id, "page": page, "size": size},
         )
@@ -95,7 +98,7 @@ try:
     @app.get("/workspace/{workspace_id}/search")
     async def api_search_within(workspace_id: str, q: str, max_results: int = 10):
         """Consumer endpoint: search within stored results."""
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "results_search",
             {"workspace_id": workspace_id, "query": q, "max_results": max_results},
         )
@@ -107,22 +110,24 @@ try:
     async def api_list_workspaces():
         """List all active workspaces with metadata."""
         workspaces = []
-        for ws_id in forge.list_workspaces():
-            meta = forge.workspace_meta(ws_id)
+        for ws_id in ctx.list_workspaces():
+            meta = ctx.workspace_meta(ws_id)
             if meta:
-                workspaces.append({
-                    "workspace_id": ws_id,
-                    "type": meta.workspace_type,
-                    "items": meta.item_count,
-                    "shape": meta.data_shape,
-                    "age_seconds": round(time.time() - meta.created_at),
-                })
+                workspaces.append(
+                    {
+                        "workspace_id": ws_id,
+                        "type": meta.workspace_type,
+                        "items": meta.item_count,
+                        "shape": meta.data_shape,
+                        "age_seconds": round(time.time() - meta.created_at),
+                    }
+                )
         return {"workspaces": workspaces, "total": len(workspaces)}
 
     @app.post("/sweep")
     async def api_sweep():
         """Manually sweep expired workspaces."""
-        expired = forge.sweep_expired()
+        expired = ctx.sweep_expired()
         return {"swept": len(expired), "workspace_ids": expired}
 
     HAS_FASTAPI = True
@@ -130,7 +135,8 @@ except ImportError:
     HAS_FASTAPI = False
 
 
-# ── Simulation (no FastAPI needed) ───────────────────────────────────────
+# Simulation (no FastAPI needed)
+
 
 def simulate_concurrent():
     """Simulate concurrent requests to demonstrate thread safety."""
@@ -149,12 +155,12 @@ def simulate_concurrent():
             ws_id = ref["workspace_id"]
 
             # Consumer calls (thread-safe)
-            page_result = forge.dispatch_tool_call(
+            page_result = ctx.dispatch_tool_call(
                 "results_paginate",
                 {"workspace_id": ws_id, "page": 0, "size": 5},
             )
 
-            search_result = forge.dispatch_tool_call(
+            search_result = ctx.dispatch_tool_call(
                 "results_search",
                 {"workspace_id": ws_id, "query": query.split()[0], "max_results": 3},
             )
@@ -171,12 +177,26 @@ def simulate_concurrent():
     # Launch 20 concurrent user sessions
     threads = []
     queries = [
-        "machine learning", "web development", "data science",
-        "cloud computing", "mobile apps", "security tools",
-        "database optimization", "API design", "testing frameworks",
-        "deployment automation", "monitoring", "CI/CD pipelines",
-        "containerization", "microservices", "serverless",
-        "GraphQL", "REST API", "WebSocket", "gRPC", "message queues",
+        "machine learning",
+        "web development",
+        "data science",
+        "cloud computing",
+        "mobile apps",
+        "security tools",
+        "database optimization",
+        "API design",
+        "testing frameworks",
+        "deployment automation",
+        "monitoring",
+        "CI/CD pipelines",
+        "containerization",
+        "microservices",
+        "serverless",
+        "GraphQL",
+        "REST API",
+        "WebSocket",
+        "gRPC",
+        "message queues",
     ]
 
     print(f"\nLaunching {len(queries)} concurrent sessions...")
@@ -202,32 +222,37 @@ def simulate_concurrent():
             print(f"  ✗ {user_id}: {err}")
 
     # Verify isolation: each session has its own workspace
-    all_workspaces = forge.list_workspaces()
+    all_workspaces = ctx.list_workspaces()
     print(f"\nWorkspaces created: {len(all_workspaces)}")
-    assert len(all_workspaces) == len(queries), \
-        f"Expected {len(queries)} workspaces, got {len(all_workspaces)}"
+    assert len(all_workspaces) == len(
+        queries
+    ), f"Expected {len(queries)} workspaces, got {len(all_workspaces)}"
 
     # Show a few results
     print(f"\nSample results:")
     for user_id in sorted(results.keys())[:5]:
         r = results[user_id]
-        print(f"  {user_id}: ws={r['workspace_id'][:20]}... "
-              f"items={r['items']}, page={r['page_items']}, "
-              f"search={r['search_matches']}")
+        print(
+            f"  {user_id}: ws={r['workspace_id'][:20]}... "
+            f"items={r['items']}, page={r['page_items']}, "
+            f"search={r['search_matches']}"
+        )
 
     # Cleanup: sweep all (they're not expired yet, but demonstrate the API)
-    print(f"\nActive workspaces before sweep: {len(forge.list_workspaces())}")
-    forge.clear()
-    print(f"Active workspaces after clear: {len(forge.list_workspaces())}")
+    print(f"\nActive workspaces before sweep: {len(ctx.list_workspaces())}")
+    ctx.clear()
+    print(f"Active workspaces after clear: {len(ctx.list_workspaces())}")
 
     print(f"\n{'=' * 70}")
     print("KEY POINTS:")
-    print("  • One Forge instance safely handles 20+ concurrent sessions")
+    print("  • One Ctx instance safely handles 20+ concurrent sessions")
     print("  • Each session gets an isolated workspace (auto UUID keys)")
     print("  • Store operations are thread-safe (RLock on MemoryStore)")
     print("  • TTL + sweep_expired() prevents memory leaks in long-running servers")
     if HAS_FASTAPI:
-        print("  • FastAPI app defined — run with: uvicorn examples.11_concurrent_server:app")
+        print(
+            "  • FastAPI app defined — run with: uvicorn examples.11_concurrent_server:app"
+        )
     else:
         print("  • Install fastapi for the HTTP server: pip install fastapi uvicorn")
     print("=" * 70)

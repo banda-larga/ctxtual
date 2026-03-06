@@ -1,10 +1,10 @@
-"""Tests for Forge — producer, consumer, workspace management."""
+"""Tests for Ctx — producer, consumer, workspace management."""
 
 import pytest
 
-from ctxtual import Forge, MemoryStore
+from ctxtual import Ctx, MemoryStore
 from ctxtual.exceptions import WorkspaceNotFoundError
-from ctxtual.forge import ConsumerContext
+from ctxtual.ctx import ConsumerContext
 from ctxtual.toolset import ToolSet
 from ctxtual.types import WorkspaceMeta, WorkspaceRef
 
@@ -12,14 +12,14 @@ from ctxtual.types import WorkspaceMeta, WorkspaceRef
 
 
 class TestProducer:
-    def test_basic_producer(self, forge: Forge, sample_papers: list) -> None:
-        ts = forge.toolset("papers")
+    def test_basic_producer(self, ctx: Ctx, sample_papers: list) -> None:
+        ts = ctx.toolset("papers")
 
         @ts.tool
         def paginate(workspace_id: str, page: int = 0) -> list:
             return ts.store.get_items(workspace_id)
 
-        @forge.producer(workspace_type="papers", toolsets=[ts])
+        @ctx.producer(workspace_type="papers", toolsets=[ts])
         def fetch_papers(query: str) -> list:
             return sample_papers
 
@@ -29,10 +29,10 @@ class TestProducer:
         assert "workspace_id" in result
         ws_id = result["workspace_id"]
         assert ws_id.startswith("papers_")
-        assert forge.store.get_items(ws_id) == sample_papers
+        assert ctx.store.get_items(ws_id) == sample_papers
 
-    def test_producer_with_transform(self, forge: Forge) -> None:
-        @forge.producer(
+    def test_producer_with_transform(self, ctx: Ctx) -> None:
+        @ctx.producer(
             workspace_type="nums",
             transform=lambda items: [x * 2 for x in items],
         )
@@ -41,10 +41,10 @@ class TestProducer:
 
         result = get_numbers()
         ws_id = result["workspace_id"]
-        assert forge.store.get_items(ws_id) == [2, 4, 6]
+        assert ctx.store.get_items(ws_id) == [2, 4, 6]
 
-    def test_producer_with_key_template(self, forge: Forge) -> None:
-        @forge.producer(
+    def test_producer_with_key_template(self, ctx: Ctx) -> None:
+        @ctx.producer(
             workspace_type="data",
             key="data_{category}",
         )
@@ -54,8 +54,8 @@ class TestProducer:
         result = fetch_data("sales")
         assert result["workspace_id"] == "data_sales"
 
-    def test_producer_with_key_callable(self, forge: Forge) -> None:
-        @forge.producer(
+    def test_producer_with_key_callable(self, ctx: Ctx) -> None:
+        @ctx.producer(
             workspace_type="data",
             key=lambda kw: f"custom_{kw['name']}_{kw['year']}",
         )
@@ -65,8 +65,8 @@ class TestProducer:
         result = fetch_data("report", 2024)
         assert result["workspace_id"] == "custom_report_2024"
 
-    def test_producer_with_meta(self, forge: Forge) -> None:
-        @forge.producer(
+    def test_producer_with_meta(self, ctx: Ctx) -> None:
+        @ctx.producer(
             workspace_type="data",
             meta={"source": "api_v2", "region": "eu"},
         )
@@ -75,12 +75,12 @@ class TestProducer:
 
         result = fetch_data()
         assert result["metadata"] == {"source": "api_v2", "region": "eu"}
-        ws_meta = forge.workspace_meta(result["workspace_id"])
+        ws_meta = ctx.workspace_meta(result["workspace_id"])
         assert ws_meta is not None
         assert ws_meta.extra == {"source": "api_v2", "region": "eu"}
 
-    def test_producer_notify_false(self, forge: Forge) -> None:
-        @forge.producer(workspace_type="data", notify=False)
+    def test_producer_notify_false(self, ctx: Ctx) -> None:
+        @ctx.producer(workspace_type="data", notify=False)
         def fetch() -> list:
             return [1, 2]
 
@@ -89,31 +89,31 @@ class TestProducer:
         assert result.item_count == 2
 
     def test_producer_default_notify_false(self) -> None:
-        forge = Forge(store=MemoryStore(), default_notify=False)
+        ctx = Ctx(store=MemoryStore(), default_notify=False)
 
-        @forge.producer(workspace_type="data")
+        @ctx.producer(workspace_type="data")
         def fetch() -> list:
             return [1]
 
         result = fetch()
         assert isinstance(result, WorkspaceRef)
 
-    def test_producer_stores_metadata(self, forge: Forge) -> None:
-        @forge.producer(workspace_type="data")
+    def test_producer_stores_metadata(self, ctx: Ctx) -> None:
+        @ctx.producer(workspace_type="data")
         def load(query: str, limit: int = 100) -> list:
             return list(range(limit))
 
         result = load("test", limit=50)
-        meta = forge.workspace_meta(result["workspace_id"])
+        meta = ctx.workspace_meta(result["workspace_id"])
         assert meta is not None
         assert meta.producer_fn == "load"
         assert meta.producer_kwargs == {"query": "test", "limit": 50}
         assert meta.item_count == 50
 
-    def test_producer_idempotent_key(self, forge: Forge) -> None:
+    def test_producer_idempotent_key(self, ctx: Ctx) -> None:
         call_count = 0
 
-        @forge.producer(workspace_type="data", key="fixed_key")
+        @ctx.producer(workspace_type="data", key="fixed_key")
         def load() -> list:
             nonlocal call_count
             call_count += 1
@@ -124,18 +124,18 @@ class TestProducer:
         assert result1["workspace_id"] == "fixed_key"
         assert result2["workspace_id"] == "fixed_key"
         # Second call overwrites
-        assert forge.store.get_items("fixed_key") == [2]
+        assert ctx.store.get_items("fixed_key") == [2]
 
     def test_producer_requires_kwargs(self) -> None:
-        forge = Forge()
+        ctx = Ctx()
         with pytest.raises(TypeError):
 
-            @forge.producer
+            @ctx.producer
             def bad_producer() -> list:
                 return []
 
-    def test_producer_multiple_toolsets(self, forge: Forge) -> None:
-        ts1 = forge.toolset("data")
+    def test_producer_multiple_toolsets(self, ctx: Ctx) -> None:
+        ts1 = ctx.toolset("data")
         ts2 = ToolSet("data_extra", enforce_type=False)
 
         @ts1.tool
@@ -146,7 +146,7 @@ class TestProducer:
         def tool_b(workspace_id: str) -> str:
             return "b"
 
-        @forge.producer(workspace_type="data", toolsets=[ts1, ts2])
+        @ctx.producer(workspace_type="data", toolsets=[ts1, ts2])
         def load() -> list:
             return [1]
 
@@ -156,14 +156,14 @@ class TestProducer:
         assert "tool_a" in tool_names
         assert "tool_b" in tool_names
 
-    def test_producer_deduplicates_toolsets(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_producer_deduplicates_toolsets(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
 
         @ts.tool
         def my_tool(workspace_id: str) -> str:
             return "x"
 
-        @forge.producer(workspace_type="data", toolsets=[ts, ts, ts])
+        @ctx.producer(workspace_type="data", toolsets=[ts, ts, ts])
         def load() -> list:
             return [1]
 
@@ -176,26 +176,26 @@ class TestProducer:
 
 
 class TestConsumer:
-    def test_consumer_receives_context(self, forge: Forge) -> None:
+    def test_consumer_receives_context(self, ctx: Ctx) -> None:
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_1", [10, 20, 30])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_1", [10, 20, 30])
 
-        @forge.consumer(workspace_type="data")
+        @ctx.consumer(workspace_type="data")
         def process(workspace_id: str, forge_ctx: ConsumerContext) -> list:
             return forge_ctx.get_items()
 
         result = process("ws_1")
         assert result == [10, 20, 30]
 
-    def test_consumer_emit(self, forge: Forge) -> None:
+    def test_consumer_emit(self, ctx: Ctx) -> None:
         meta = WorkspaceMeta(workspace_id="ws_src", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_src", [1, 2, 3, 4, 5])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_src", [1, 2, 3, 4, 5])
 
-        derived_ts = forge.toolset("filtered")
+        derived_ts = ctx.toolset("filtered")
 
-        @forge.consumer(
+        @ctx.consumer(
             workspace_type="data",
             produces="filtered",
             produces_toolsets=[derived_ts],
@@ -209,58 +209,58 @@ class TestConsumer:
         assert result["status"] == "workspace_ready"
         assert result["item_count"] == 2
         derived_id = result["workspace_id"]
-        assert forge.store.get_items(derived_id) == [2, 4]
+        assert ctx.store.get_items(derived_id) == [2, 4]
 
-    def test_consumer_validates_workspace(self, forge: Forge) -> None:
-        @forge.consumer(workspace_type="data")
+    def test_consumer_validates_workspace(self, ctx: Ctx) -> None:
+        @ctx.consumer(workspace_type="data")
         def process(workspace_id: str, forge_ctx: ConsumerContext) -> None:
             pass
 
         with pytest.raises(WorkspaceNotFoundError):
             process("nonexistent")
 
-    def test_consumer_no_default_needed(self, forge: Forge) -> None:
+    def test_consumer_no_default_needed(self, ctx: Ctx) -> None:
         """forge_ctx works without ``= None`` default."""
         meta = WorkspaceMeta(workspace_id="ws_nd", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_nd", [1, 2])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_nd", [1, 2])
 
-        @forge.consumer(workspace_type="data")
+        @ctx.consumer(workspace_type="data")
         def read(workspace_id: str, forge_ctx: ConsumerContext) -> list:
             return forge_ctx.get_items()
 
         assert read("ws_nd") == [1, 2]
 
-    def test_consumer_by_annotation(self, forge: Forge) -> None:
+    def test_consumer_by_annotation(self, ctx: Ctx) -> None:
         """Context detected by ConsumerContext annotation, not just name."""
         meta = WorkspaceMeta(workspace_id="ws_ann", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_ann", ["a", "b"])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_ann", ["a", "b"])
 
-        @forge.consumer(workspace_type="data")
+        @ctx.consumer(workspace_type="data")
         def read(workspace_id: str, ctx: ConsumerContext) -> list:
             return ctx.get_items()
 
         assert read("ws_ann") == ["a", "b"]
 
-    def test_consumer_direct_call(self, forge: Forge) -> None:
+    def test_consumer_direct_call(self, ctx: Ctx) -> None:
         """Consumer's __wrapped__ can be called directly with an explicit context."""
         meta = WorkspaceMeta(workspace_id="ws_dc", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_dc", [10, 20])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_dc", [10, 20])
 
-        @forge.consumer(workspace_type="data")
+        @ctx.consumer(workspace_type="data")
         def read(workspace_id: str, forge_ctx: ConsumerContext) -> list:
             return forge_ctx.get_items()
 
-        ctx = ConsumerContext(forge, "ws_dc")
+        ctx = ConsumerContext(ctx, "ws_dc")
         result = read.__wrapped__("ws_dc", forge_ctx=ctx)
         assert result == [10, 20]
 
     def test_consumer_context_defaults(self) -> None:
         """ConsumerContext can be constructed with minimal args for testing."""
-        forge = Forge(store=MemoryStore())
-        ctx = ConsumerContext(forge)
+        ctx = Ctx(store=MemoryStore())
+        ctx = ConsumerContext(ctx)
         assert ctx.input_workspace_id == ""
         assert ctx._output_type is None
         assert ctx._output_toolsets == []
@@ -270,43 +270,43 @@ class TestConsumer:
 
 
 class TestWorkspaceManagement:
-    def test_list_workspaces(self, forge: Forge) -> None:
-        @forge.producer(workspace_type="papers", key="ws_p")
+    def test_list_workspaces(self, ctx: Ctx) -> None:
+        @ctx.producer(workspace_type="papers", key="ws_p")
         def load_papers() -> list:
             return [1]
 
-        @forge.producer(workspace_type="employees", key="ws_e")
+        @ctx.producer(workspace_type="employees", key="ws_e")
         def load_employees() -> list:
             return [2]
 
         load_papers()
         load_employees()
 
-        all_ws = forge.list_workspaces()
+        all_ws = ctx.list_workspaces()
         assert "ws_p" in all_ws
         assert "ws_e" in all_ws
 
-        papers = forge.list_workspaces("papers")
+        papers = ctx.list_workspaces("papers")
         assert papers == ["ws_p"]
 
-    def test_drop_workspace(self, forge: Forge) -> None:
-        @forge.producer(workspace_type="data", key="ws_drop")
+    def test_drop_workspace(self, ctx: Ctx) -> None:
+        @ctx.producer(workspace_type="data", key="ws_drop")
         def load() -> list:
             return [1, 2, 3]
 
         load()
-        assert forge.workspace_meta("ws_drop") is not None
-        forge.drop_workspace("ws_drop")
-        assert forge.workspace_meta("ws_drop") is None
+        assert ctx.workspace_meta("ws_drop") is not None
+        ctx.drop_workspace("ws_drop")
+        assert ctx.workspace_meta("ws_drop") is None
 
-    def test_forge_repr(self, forge: Forge) -> None:
-        r = repr(forge)
-        assert "Forge" in r
+    def test_forge_repr(self, ctx: Ctx) -> None:
+        r = repr(ctx)
+        assert "Ctx" in r
         assert "MemoryStore" in r
 
-    def test_toolset_retrieval(self, forge: Forge) -> None:
-        ts1 = forge.toolset("papers")
-        ts2 = forge.toolset("papers")
+    def test_toolset_retrieval(self, ctx: Ctx) -> None:
+        ts1 = ctx.toolset("papers")
+        ts2 = ctx.toolset("papers")
         assert ts1 is ts2  # Same instance
 
 
@@ -314,31 +314,31 @@ class TestWorkspaceManagement:
 
 
 class TestSystemPrompt:
-    def test_system_prompt_with_preamble(self, forge: Forge) -> None:
-        prompt = forge.system_prompt(preamble="You are a helpful assistant.")
+    def test_system_prompt_with_preamble(self, ctx: Ctx) -> None:
+        prompt = ctx.system_prompt(preamble="You are a helpful assistant.")
         assert "You are a helpful assistant." in prompt
         assert "workspace" in prompt.lower()
 
-    def test_system_prompt_without_preamble(self, forge: Forge) -> None:
-        prompt = forge.system_prompt()
+    def test_system_prompt_without_preamble(self, ctx: Ctx) -> None:
+        prompt = ctx.system_prompt()
         assert "workspace" in prompt.lower()
         # Should not start with empty line
         assert not prompt.startswith("\n")
 
-    def test_system_prompt_is_concise(self, forge: Forge) -> None:
-        prompt = forge.system_prompt(preamble="You are a research bot.")
+    def test_system_prompt_is_concise(self, ctx: Ctx) -> None:
+        prompt = ctx.system_prompt(preamble="You are a research bot.")
         # Should be much shorter than the ~40-line manual prompts
         assert len(prompt) < 600
 
 
 class TestProducerSchemas:
-    def test_get_producer_schemas_basic(self, forge: Forge) -> None:
-        @forge.producer(workspace_type="data", key="k")
+    def test_get_producer_schemas_basic(self, ctx: Ctx) -> None:
+        @ctx.producer(workspace_type="data", key="k")
         def load_data(query: str, limit: int = 10) -> list:
             """Load data from the database."""
             return []
 
-        schemas = forge.get_producer_schemas()
+        schemas = ctx.get_producer_schemas()
         assert len(schemas) == 1
         schema = schemas[0]
         assert schema["type"] == "function"
@@ -350,50 +350,50 @@ class TestProducerSchemas:
         assert "limit" in props
         assert schema["function"]["parameters"]["required"] == ["query"]
 
-    def test_get_producer_schemas_multiple(self, forge: Forge) -> None:
-        @forge.producer(workspace_type="a", key="a")
+    def test_get_producer_schemas_multiple(self, ctx: Ctx) -> None:
+        @ctx.producer(workspace_type="a", key="a")
         def producer_a(x: str) -> list:
             return []
 
-        @forge.producer(workspace_type="b", key="b")
+        @ctx.producer(workspace_type="b", key="b")
         def producer_b(y: int) -> list:
             return []
 
-        schemas = forge.get_producer_schemas()
+        schemas = ctx.get_producer_schemas()
         names = [s["function"]["name"] for s in schemas]
         assert "producer_a" in names
         assert "producer_b" in names
 
-    def test_get_tools_combines_all(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_get_tools_combines_all(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
 
         @ts.tool
         def read(workspace_id: str) -> list:
             return []
 
-        @forge.producer(workspace_type="data", toolsets=[ts], key="k")
+        @ctx.producer(workspace_type="data", toolsets=[ts], key="k")
         def fetch(q: str) -> list:
             return []
 
-        tools = forge.get_tools()
+        tools = ctx.get_tools()
         names = [t["function"]["name"] for t in tools]
         assert "fetch" in names
         assert "read" in names
 
 
 class TestDispatchProducers:
-    def test_dispatch_handles_producers(self, forge: Forge) -> None:
-        @forge.producer(workspace_type="data", key="ws_{q}")
+    def test_dispatch_handles_producers(self, ctx: Ctx) -> None:
+        @ctx.producer(workspace_type="data", key="ws_{q}")
         def search(q: str) -> list:
             return [1, 2, 3]
 
-        result = forge.dispatch_tool_call("search", {"q": "test"})
+        result = ctx.dispatch_tool_call("search", {"q": "test"})
         assert result["status"] == "workspace_ready"
         assert result["workspace_id"] == "ws_test"
         assert result["item_count"] == 3
 
-    def test_dispatch_handles_consumers(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_dispatch_handles_consumers(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
 
         @ts.tool
         def count(workspace_id: str) -> int:
@@ -403,14 +403,14 @@ class TestDispatchProducers:
         from ctxtual.types import WorkspaceMeta
 
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_1", [10, 20, 30])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_1", [10, 20, 30])
 
-        result = forge.dispatch_tool_call("count", {"workspace_id": "ws_1"})
+        result = ctx.dispatch_tool_call("count", {"workspace_id": "ws_1"})
         assert result == 3
 
-    def test_dispatch_unknown_returns_error(self, forge: Forge) -> None:
-        result = forge.dispatch_tool_call("nonexistent", {})
+    def test_dispatch_unknown_returns_error(self, ctx: Ctx) -> None:
+        result = ctx.dispatch_tool_call("nonexistent", {})
         assert "error" in result
         assert "not found" in result["error"]
         assert "suggested_action" in result

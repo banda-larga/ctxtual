@@ -14,6 +14,8 @@ build/
 venv/
 env/
 
+.ruff_cache/
+
 # IDE
 .idea/
 .vscode/

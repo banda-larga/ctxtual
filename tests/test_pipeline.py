@@ -2,7 +2,7 @@
 
 import pytest
 
-from ctxtual import Forge, MemoryStore
+from ctxtual import Ctx, MemoryStore
 from ctxtual.pipeline import PipelineEngine, PipelineError, compute_aggregates
 from ctxtual.utils import pipeline
 
@@ -29,15 +29,15 @@ def engine():
 
 @pytest.fixture()
 def forge_with_pipeline():
-    forge = Forge(store=MemoryStore())
-    pipe_ts = pipeline(forge, "papers")
+    ctx = Ctx(store=MemoryStore())
+    pipe_ts = pipeline(ctx, "papers")
 
-    @forge.producer(workspace_type="papers", toolsets=[pipe_ts])
+    @ctx.producer(workspace_type="papers", toolsets=[pipe_ts])
     def load_papers():
         return list(PAPERS)
 
     ref = load_papers()
-    return forge, ref, pipe_ts
+    return ctx, ref, pipe_ts
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -496,14 +496,14 @@ class TestComputeAggregates:
 
 class TestPipelineToolSet:
     def test_pipe_tool_exists(self, forge_with_pipeline):
-        forge, ref, ts = forge_with_pipeline
+        ctx, ref, ts = forge_with_pipeline
         assert "papers_pipe" in ts.tool_names
         assert "papers_aggregate" in ts.tool_names
 
     def test_pipe_basic(self, forge_with_pipeline):
-        forge, ref, ts = forge_with_pipeline
+        ctx, ref, ts = forge_with_pipeline
         wid = ref["workspace_id"]
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "papers_pipe",
             {
                 "workspace_id": wid,
@@ -517,9 +517,9 @@ class TestPipelineToolSet:
         assert result["items"][0]["citations"] >= result["items"][1]["citations"]
 
     def test_pipe_with_limit(self, forge_with_pipeline):
-        forge, ref, ts = forge_with_pipeline
+        ctx, ref, ts = forge_with_pipeline
         wid = ref["workspace_id"]
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "papers_pipe",
             {
                 "workspace_id": wid,
@@ -535,9 +535,9 @@ class TestPipelineToolSet:
             assert set(item.keys()) == {"title", "citations"}
 
     def test_pipe_count_terminal(self, forge_with_pipeline):
-        forge, ref, ts = forge_with_pipeline
+        ctx, ref, ts = forge_with_pipeline
         wid = ref["workspace_id"]
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "papers_pipe",
             {
                 "workspace_id": wid,
@@ -547,9 +547,9 @@ class TestPipelineToolSet:
         assert result["count"] == 4
 
     def test_pipe_save_as(self, forge_with_pipeline):
-        forge, ref, ts = forge_with_pipeline
+        ctx, ref, ts = forge_with_pipeline
         wid = ref["workspace_id"]
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "papers_pipe",
             {
                 "workspace_id": wid,
@@ -562,13 +562,13 @@ class TestPipelineToolSet:
         assert result["item_count"] == 3
 
         # Saved workspace is browsable
-        saved = forge.store.get_items("alice_papers")
+        saved = ctx.store.get_items("alice_papers")
         assert len(saved) == 3
 
     def test_pipe_error_handling(self, forge_with_pipeline):
-        forge, ref, ts = forge_with_pipeline
+        ctx, ref, ts = forge_with_pipeline
         wid = ref["workspace_id"]
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "papers_pipe",
             {
                 "workspace_id": wid,
@@ -580,15 +580,15 @@ class TestPipelineToolSet:
 
     def test_pipe_on_dict_workspace(self):
         """Pipeline on dict workspace returns helpful error."""
-        forge = Forge(store=MemoryStore())
-        pipe_ts = pipeline(forge, "config")
+        ctx = Ctx(store=MemoryStore())
+        pipe_ts = pipeline(ctx, "config")
 
-        @forge.producer(workspace_type="config", toolsets=[pipe_ts])
+        @ctx.producer(workspace_type="config", toolsets=[pipe_ts])
         def load_config():
             return {"key": "value"}
 
         ref = load_config()
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "config_pipe",
             {
                 "workspace_id": ref["workspace_id"],
@@ -600,18 +600,18 @@ class TestPipelineToolSet:
         assert "error" in result
 
     def test_aggregate_basic(self, forge_with_pipeline):
-        forge, ref, ts = forge_with_pipeline
+        ctx, ref, ts = forge_with_pipeline
         wid = ref["workspace_id"]
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "papers_aggregate",
             {"workspace_id": wid},
         )
         assert result["result"]["count"] == 10
 
     def test_aggregate_grouped(self, forge_with_pipeline):
-        forge, ref, ts = forge_with_pipeline
+        ctx, ref, ts = forge_with_pipeline
         wid = ref["workspace_id"]
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "papers_aggregate",
             {
                 "workspace_id": wid,
@@ -628,15 +628,15 @@ class TestPipelineToolSet:
 
     def test_schema_generated(self, forge_with_pipeline):
         """Pipeline tools appear in tool schemas."""
-        forge, _, _ = forge_with_pipeline
-        schemas = forge.get_all_tool_schemas()
+        ctx, _, _ = forge_with_pipeline
+        schemas = ctx.get_all_tool_schemas()
         names = [s["function"]["name"] for s in schemas]
         assert "papers_pipe" in names
         assert "papers_aggregate" in names
 
     def test_pipe_schema_has_good_description(self, forge_with_pipeline):
-        forge, _, _ = forge_with_pipeline
-        schemas = forge.get_all_tool_schemas()
+        ctx, _, _ = forge_with_pipeline
+        schemas = ctx.get_all_tool_schemas()
         pipe_schema = next(s for s in schemas if s["function"]["name"] == "papers_pipe")
         desc = pipe_schema["function"]["description"]
         # Should mention the key operations
@@ -648,9 +648,9 @@ class TestPipelineToolSet:
         """Pipeline can share a ToolSet with paginator."""
         from ctxtual.utils import paginator
 
-        forge = Forge(store=MemoryStore())
-        pager = paginator(forge, "data")
-        pipe = pipeline(forge, "data")
+        ctx = Ctx(store=MemoryStore())
+        pager = paginator(ctx, "data")
+        pipe = pipeline(ctx, "data")
 
         # Same ToolSet, different tools
         assert pager is pipe

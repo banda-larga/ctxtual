@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from ctxtual import Forge, MemoryStore
+from ctxtual import Ctx, MemoryStore
 from ctxtual.utils import paginator, text_search
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -12,18 +12,18 @@ from ctxtual.utils import paginator, text_search
 
 @pytest.fixture()
 def forge_with_data():
-    """Forge with a producer, a workspace, and some data."""
-    forge = Forge(store=MemoryStore())
-    pager = paginator(forge, "docs")
-    searcher = text_search(forge, "docs", fields=["title"])
+    """Ctx with a producer, a workspace, and some data."""
+    ctx = Ctx(store=MemoryStore())
+    pager = paginator(ctx, "docs")
+    searcher = text_search(ctx, "docs", fields=["title"])
 
-    @forge.producer(workspace_type="docs", toolsets=[pager, searcher])
+    @ctx.producer(workspace_type="docs", toolsets=[pager, searcher])
     def find_docs(query: str) -> list[dict]:
         """Search for documents."""
         return [{"title": f"Doc {i}: {query}"} for i in range(20)]
 
     ref = find_docs(query="testing")
-    return forge, ref
+    return ctx, ref
 
 
 # ── Mock objects that mimic SDK response shapes ──────────────────────────
@@ -89,8 +89,8 @@ class TestOpenAIAdapter:
     def test_to_openai_tools(self, forge_with_data):
         from ctxtual.integrations.openai import to_openai_tools
 
-        forge, _ = forge_with_data
-        tools = to_openai_tools(forge)
+        ctx, _ = forge_with_data
+        tools = to_openai_tools(ctx)
         assert isinstance(tools, list)
         assert len(tools) > 0
         # Every tool has the OpenAI function-calling shape
@@ -150,7 +150,7 @@ class TestOpenAIAdapter:
     def test_handle_tool_calls_sdk(self, forge_with_data):
         from ctxtual.integrations.openai import handle_tool_calls
 
-        forge, ref = forge_with_data
+        ctx, ref = forge_with_data
         wid = ref["workspace_id"]
 
         tc = _ToolCall(
@@ -159,7 +159,7 @@ class TestOpenAIAdapter:
             json.dumps({"workspace_id": wid, "page": 0, "size": 5}),
         )
         resp = _Response([_Choice(_Message(tool_calls=[tc]))])
-        msgs = handle_tool_calls(forge, resp)
+        msgs = handle_tool_calls(ctx, resp)
 
         assert len(msgs) == 1
         assert msgs[0]["role"] == "tool"
@@ -171,7 +171,7 @@ class TestOpenAIAdapter:
     def test_handle_tool_calls_dict(self, forge_with_data):
         from ctxtual.integrations.openai import handle_tool_calls
 
-        forge, ref = forge_with_data
+        ctx, ref = forge_with_data
         wid = ref["workspace_id"]
 
         resp = {
@@ -197,7 +197,7 @@ class TestOpenAIAdapter:
                 }
             ]
         }
-        msgs = handle_tool_calls(forge, resp)
+        msgs = handle_tool_calls(ctx, resp)
         assert len(msgs) == 1
         assert msgs[0]["role"] == "tool"
         data = json.loads(msgs[0]["content"])
@@ -207,10 +207,10 @@ class TestOpenAIAdapter:
         """Unknown tool returns an error dict instead of raising."""
         from ctxtual.integrations.openai import handle_tool_calls
 
-        forge, _ = forge_with_data
+        ctx, _ = forge_with_data
         tc = _ToolCall("call_e", "nonexistent_tool", '{"x": 1}')
         resp = _Response([_Choice(_Message(tool_calls=[tc]))])
-        msgs = handle_tool_calls(forge, resp)
+        msgs = handle_tool_calls(ctx, resp)
 
         assert len(msgs) == 1
         data = json.loads(msgs[0]["content"])
@@ -220,12 +220,12 @@ class TestOpenAIAdapter:
         """Dispatching a producer through the adapter."""
         from ctxtual.integrations.openai import handle_tool_calls
 
-        forge, _ = forge_with_data
+        ctx, _ = forge_with_data
         tc = _ToolCall(
             "call_p", "find_docs", json.dumps({"query": "via adapter"})
         )
         resp = _Response([_Choice(_Message(tool_calls=[tc]))])
-        msgs = handle_tool_calls(forge, resp)
+        msgs = handle_tool_calls(ctx, resp)
 
         assert len(msgs) == 1
         data = json.loads(msgs[0]["content"])
@@ -234,7 +234,7 @@ class TestOpenAIAdapter:
     def test_max_content_length(self, forge_with_data):
         from ctxtual.integrations.openai import handle_tool_calls
 
-        forge, ref = forge_with_data
+        ctx, ref = forge_with_data
         wid = ref["workspace_id"]
 
         tc = _ToolCall(
@@ -243,14 +243,14 @@ class TestOpenAIAdapter:
             json.dumps({"workspace_id": wid, "page": 0, "size": 20}),
         )
         resp = _Response([_Choice(_Message(tool_calls=[tc]))])
-        msgs = handle_tool_calls(forge, resp, max_content_length=100)
+        msgs = handle_tool_calls(ctx, resp, max_content_length=100)
 
         assert len(msgs[0]["content"]) <= 100
 
     def test_multiple_tool_calls(self, forge_with_data):
         from ctxtual.integrations.openai import handle_tool_calls
 
-        forge, ref = forge_with_data
+        ctx, ref = forge_with_data
         wid = ref["workspace_id"]
 
         tc1 = _ToolCall(
@@ -264,7 +264,7 @@ class TestOpenAIAdapter:
             json.dumps({"workspace_id": wid, "page": 1, "size": 2}),
         )
         resp = _Response([_Choice(_Message(tool_calls=[tc1, tc2]))])
-        msgs = handle_tool_calls(forge, resp)
+        msgs = handle_tool_calls(ctx, resp)
         assert len(msgs) == 2
         assert msgs[0]["tool_call_id"] == "call_a"
         assert msgs[1]["tool_call_id"] == "call_b"
@@ -279,8 +279,8 @@ class TestAnthropicAdapter:
     def test_to_anthropic_tools(self, forge_with_data):
         from ctxtual.integrations.anthropic import to_anthropic_tools
 
-        forge, _ = forge_with_data
-        tools = to_anthropic_tools(forge)
+        ctx, _ = forge_with_data
+        tools = to_anthropic_tools(ctx)
         assert isinstance(tools, list)
         assert len(tools) > 0
         for t in tools:
@@ -295,8 +295,8 @@ class TestAnthropicAdapter:
         """Anthropic schemas have input_schema with properties/required."""
         from ctxtual.integrations.anthropic import to_anthropic_tools
 
-        forge, _ = forge_with_data
-        tools = to_anthropic_tools(forge)
+        ctx, _ = forge_with_data
+        tools = to_anthropic_tools(ctx)
         for t in tools:
             schema = t["input_schema"]
             assert schema["type"] == "object"
@@ -338,7 +338,7 @@ class TestAnthropicAdapter:
     def test_handle_tool_use_sdk(self, forge_with_data):
         from ctxtual.integrations.anthropic import handle_tool_use
 
-        forge, ref = forge_with_data
+        ctx, ref = forge_with_data
         wid = ref["workspace_id"]
 
         resp = _AnthropicResponse(
@@ -351,7 +351,7 @@ class TestAnthropicAdapter:
                 ),
             ]
         )
-        results = handle_tool_use(forge, resp)
+        results = handle_tool_use(ctx, resp)
 
         assert len(results) == 1
         assert results[0]["type"] == "tool_result"
@@ -363,7 +363,7 @@ class TestAnthropicAdapter:
     def test_handle_tool_use_dict(self, forge_with_data):
         from ctxtual.integrations.anthropic import handle_tool_use
 
-        forge, ref = forge_with_data
+        ctx, ref = forge_with_data
         wid = ref["workspace_id"]
 
         resp = {
@@ -376,7 +376,7 @@ class TestAnthropicAdapter:
                 }
             ]
         }
-        results = handle_tool_use(forge, resp)
+        results = handle_tool_use(ctx, resp)
         assert len(results) == 1
         data = json.loads(results[0]["content"])
         assert len(data["result"]["items"]) == 2
@@ -384,22 +384,22 @@ class TestAnthropicAdapter:
     def test_handle_tool_use_error(self, forge_with_data):
         from ctxtual.integrations.anthropic import handle_tool_use
 
-        forge, _ = forge_with_data
+        ctx, _ = forge_with_data
         resp = _AnthropicResponse(
             [_AnthropicToolUse("tu_e", "bad_tool", {"x": 1})]
         )
-        results = handle_tool_use(forge, resp)
+        results = handle_tool_use(ctx, resp)
         assert len(results) == 1
         assert results[0]["is_error"] is True
 
     def test_handle_tool_use_producer(self, forge_with_data):
         from ctxtual.integrations.anthropic import handle_tool_use
 
-        forge, _ = forge_with_data
+        ctx, _ = forge_with_data
         resp = _AnthropicResponse(
             [_AnthropicToolUse("tu_p", "find_docs", {"query": "anthropic"})]
         )
-        results = handle_tool_use(forge, resp)
+        results = handle_tool_use(ctx, resp)
         assert len(results) == 1
         data = json.loads(results[0]["content"])
         assert data["status"] == "workspace_ready"
@@ -407,7 +407,7 @@ class TestAnthropicAdapter:
     def test_multiple_tool_use(self, forge_with_data):
         from ctxtual.integrations.anthropic import handle_tool_use
 
-        forge, ref = forge_with_data
+        ctx, ref = forge_with_data
         wid = ref["workspace_id"]
 
         resp = _AnthropicResponse(
@@ -422,7 +422,7 @@ class TestAnthropicAdapter:
                 ),
             ]
         )
-        results = handle_tool_use(forge, resp)
+        results = handle_tool_use(ctx, resp)
         assert len(results) == 2
         assert results[0]["tool_use_id"] == "tu_a"
         assert results[1]["tool_use_id"] == "tu_b"
@@ -439,9 +439,9 @@ class TestLangChainAdapter:
         # This test works because langchain-core is not in our deps
         from ctxtual.integrations.langchain import to_langchain_tools
 
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
         with pytest.raises(ImportError, match="langchain-core"):
-            to_langchain_tools(forge)
+            to_langchain_tools(ctx)
 
     def test_json_schema_to_pydantic(self):
         """Internal helper builds a working Pydantic model from JSON Schema."""

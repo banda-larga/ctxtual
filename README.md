@@ -17,27 +17,58 @@ pip install ctxtual
 
 ## Table of Contents
 
-- [The Problem You Already Have](#the-problem-you-already-have)
-- [Why ctxtual](#why-ctxtual)
-- [Quick Start](#quick-start)
-- [Install](#install)
-- [Architecture](#architecture)
-- [Core API](#core-api) — Forge, `@producer`, `@consumer`, dispatch, schema export
-- [Built-in ToolSets](#built-in-toolsets) — paginator, text_search, filter_set, kv_reader, text_content, pipeline
-- [Custom ToolSets](#custom-toolsets)
-- [Storage Backends](#storage-backends)
-- [Workspace Mutations](#workspace-mutations)
-- [Framework Integrations](#framework-integrations) — OpenAI, Anthropic, LangChain
-- [Concurrency & Thread Safety](#concurrency--thread-safety)
-- [Error Recovery](#error-recovery)
-- [Advanced Patterns](#advanced-patterns)
-- [Workspace Introspection](#workspace-introspection)
-- [Examples](#examples)
-- [Design Principles](#design-principles)
-- [Testing](#testing)
-- [API Reference](#api-reference)
-- [Contributing](#contributing)
-- [License](#license)
+- [ctxtual](#ctxtual)
+  - [Table of Contents](#table-of-contents)
+  - [The Problem You Already Have](#the-problem-you-already-have)
+  - [Why ctxtual](#why-ctxtual)
+  - [Quick Start](#quick-start)
+  - [Install](#install)
+  - [Architecture](#architecture)
+  - [Core API](#core-api)
+    - [Ctx](#ctx)
+    - [`@ctx.producer` — Store Data, Return a Map](#ctxproducer--store-data-return-a-map)
+    - [`@ctx.consumer` — Transform and Derive](#ctxconsumer--transform-and-derive)
+    - [`ctx.dispatch_tool_call()` — Single Entry Point](#ctxdispatch_tool_call--single-entry-point)
+    - [Schema Export](#schema-export)
+  - [Built-in ToolSets](#built-in-toolsets)
+    - [`paginator(ctx, name)` — List Navigation](#paginatorctx-name--list-navigation)
+    - [`text_search(ctx, name, *, fields=None)` — Full-Text Search](#text_searchctx-name--fieldsnone--full-text-search)
+    - [`filter_set(ctx, name)` — Structured Filtering](#filter_setctx-name--structured-filtering)
+    - [`kv_reader(ctx, name)` — Dict Workspaces](#kv_readerctx-name--dict-workspaces)
+    - [`text_content(ctx, name)` — Raw Text / Scalar Navigation](#text_contentctx-name--raw-text--scalar-navigation)
+    - [Text Transforms — Convert Strings to Structured Data](#text-transforms--convert-strings-to-structured-data)
+    - [`pipeline(ctx, name)` — Declarative Data Pipelines](#pipelinectx-name--declarative-data-pipelines)
+  - [Custom ToolSets](#custom-toolsets)
+  - [Storage Backends](#storage-backends)
+    - [MemoryStore](#memorystore)
+    - [SQLiteStore](#sqlitestore)
+    - [Custom Backends](#custom-backends)
+  - [Workspace Mutations](#workspace-mutations)
+  - [Framework Integrations](#framework-integrations)
+    - [OpenAI](#openai)
+    - [Anthropic](#anthropic)
+    - [LangChain](#langchain)
+  - [Concurrency \& Thread Safety](#concurrency--thread-safety)
+  - [Error Recovery](#error-recovery)
+  - [Advanced Patterns](#advanced-patterns)
+    - [Deterministic Workspace IDs (Idempotency)](#deterministic-workspace-ids-idempotency)
+    - [Multi-Hop Pipelines](#multi-hop-pipelines)
+    - [Multi-Agent Collaboration](#multi-agent-collaboration)
+    - [BoundToolSet (Fixed Workspace)](#boundtoolset-fixed-workspace)
+    - [Result Transformation](#result-transformation)
+    - [TTL \& Automatic Cleanup](#ttl--automatic-cleanup)
+    - [System Prompt Generation](#system-prompt-generation)
+    - [Item Schema in Notifications](#item-schema-in-notifications)
+  - [Workspace Introspection](#workspace-introspection)
+  - [Examples](#examples)
+  - [Design Principles](#design-principles)
+  - [Testing](#testing)
+  - [API Reference](#api-reference)
+    - [Ctx](#ctx-1)
+    - [ToolSet](#toolset)
+    - [Store](#store)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 ---
 
@@ -53,7 +84,7 @@ def search_papers(query: str) -> list[dict]:
     return database.search(query)  # 10,000 results → LLM chokes
 
 # After: data is stored, agent gets a map
-@forge.producer(workspace_type="papers", toolsets=[paginator(forge), search, filters])
+@ctx.producer(workspace_type="papers", toolsets=[paginator(ctx), search, filters])
 def search_papers(query: str) -> list[dict]:
     return database.search(query)  # 10,000 results → stored in workspace
     # Agent receives:
@@ -91,17 +122,17 @@ The agent then explores with surgical precision — paginating, searching, filte
 ## Quick Start
 
 ```python
-from ctxtual import Forge, MemoryStore
+from ctxtual import Ctx, MemoryStore
 from ctxtual.utils import paginator, text_search, filter_set, pipeline
 
-forge = Forge(store=MemoryStore())
+ctx = Ctx(store=MemoryStore())
 
 # Wrap your data-fetching function — toolsets get their name from workspace_type
-@forge.producer(workspace_type="papers", toolsets=[
-    paginator(forge),
-    text_search(forge, fields=["title", "abstract"]),
-    filter_set(forge),
-    pipeline(forge),
+@ctx.producer(workspace_type="papers", toolsets=[
+    paginator(ctx),
+    text_search(ctx, fields=["title", "abstract"]),
+    filter_set(ctx),
+    pipeline(ctx),
 ])
 def search_papers(query: str, limit: int = 10_000) -> list[dict]:
     return database.search(query, limit)
@@ -111,12 +142,12 @@ ref = search_papers("machine learning")
 ws_id = ref["workspace_id"]
 
 # Agent explores using consumer tools:
-forge.dispatch_tool_call("papers_paginate",  {"workspace_id": ws_id, "page": 0, "size": 10})
-forge.dispatch_tool_call("papers_search",    {"workspace_id": ws_id, "query": "transformer"})
-forge.dispatch_tool_call("papers_filter_by", {"workspace_id": ws_id, "field": "year", "value": 2024, "operator": "gte"})
+ctx.dispatch_tool_call("papers_paginate",  {"workspace_id": ws_id, "page": 0, "size": 10})
+ctx.dispatch_tool_call("papers_search",    {"workspace_id": ws_id, "query": "transformer"})
+ctx.dispatch_tool_call("papers_filter_by", {"workspace_id": ws_id, "field": "year", "value": 2024, "operator": "gte"})
 
 # Or: compound operations in ONE call (no round-trips, no intermediate context)
-forge.dispatch_tool_call("papers_pipe", {
+ctx.dispatch_tool_call("papers_pipe", {
     "workspace_id": ws_id,
     "steps": [
         {"search": {"query": "transformer"}},
@@ -157,9 +188,9 @@ pip install langchain-core      # for ctxtual.integrations.langchain
 
 ```
 Your Agent Loop
-  LLM ←→ tool_calls ←→ forge.dispatch_tool_call()
+  LLM ←→ tool_calls ←→ ctx.dispatch_tool_call()
 
-Forge (orchestrator)
+Ctx (orchestrator)
   @producer / @consumer decorators
   Schema export (OpenAI, Anthropic, LangChain format)
   Dispatch routing — one method handles all tool calls
@@ -186,21 +217,21 @@ Store (pluggable backend)
 
 ## Core API
 
-### Forge
+### Ctx
 
 The central orchestrator. One per application (or per agent session).
 
 ```python
-from ctxtual import Forge, MemoryStore, SQLiteStore
+from ctxtual import Ctx, MemoryStore, SQLiteStore
 
 # In-memory (default) — fast, test-friendly, process-scoped
-forge = Forge(store=MemoryStore())
+ctx = Ctx(store=MemoryStore())
 
 # Persistent — survives process restarts
-forge = Forge(store=SQLiteStore("agent.db"))
+ctx = Ctx(store=SQLiteStore("agent.db"))
 
 # With configuration
-forge = Forge(
+ctx = Ctx(
     store=MemoryStore(max_workspaces=500),  # LRU eviction when exceeded
     default_ttl=3600,     # Workspaces expire after 1 hour
     max_items=100_000,    # Reject payloads larger than 100K items
@@ -208,12 +239,12 @@ forge = Forge(
 )
 ```
 
-### `@forge.producer` — Store Data, Return a Map
+### `@ctx.producer` — Store Data, Return a Map
 
 Wraps any function so its return value is stored in a workspace. The agent gets a self-describing notification instead of raw data.
 
 ```python
-@forge.producer(
+@ctx.producer(
     workspace_type="papers",           # Logical data category
     toolsets=[pager, search, filters], # Consumer tools for this data
     key="papers_{query}",              # Deterministic workspace ID (optional)
@@ -234,12 +265,12 @@ def search_papers(query: str) -> list[dict]:
 | `"papers_{query}"` | Templated from kwargs | Idempotent — same args = same workspace (overwritten) |
 | `lambda kw: f"ws_{kw['user_id']}"` | Custom callable | Full control over deduplication logic |
 
-### `@forge.consumer` — Transform and Derive
+### `@ctx.consumer` — Transform and Derive
 
 Consumers read from one workspace and optionally produce a new one. This enables multi-hop agent pipelines.
 
 ```python
-@forge.consumer(
+@ctx.consumer(
     workspace_type="raw_data",               # Input workspace type
     produces="cleaned_data",                 # Output workspace type
     produces_toolsets=[clean_pager],          # Tools for the output
@@ -258,12 +289,12 @@ def clean_and_filter(workspace_id: str, forge_ctx: ConsumerContext):
 | `emit(payload, *, workspace_type, meta, ttl)` | Store derived data as a new workspace, return `WorkspaceRef` dict |
 | `store` | Direct access to the store backend |
 
-### `forge.dispatch_tool_call()` — Single Entry Point
+### `ctx.dispatch_tool_call()` — Single Entry Point
 
 Route any tool call — producers and consumers — through one method. This is what your agent loop calls.
 
 ```python
-result = forge.dispatch_tool_call("papers_search", {"workspace_id": ws_id, "query": "attention"})
+result = ctx.dispatch_tool_call("papers_search", {"workspace_id": ws_id, "query": "attention"})
 ```
 
 **Always returns a value, never raises on tool errors:**
@@ -287,13 +318,13 @@ Export tool schemas in OpenAI function-calling format. Pass them to any LLM that
 
 ```python
 # All tools (producers + consumers)
-tools = forge.get_tools()
+tools = ctx.get_tools()
 
 # Only producer tools
-producers = forge.get_producer_schemas()
+producers = ctx.get_producer_schemas()
 
 # All consumer tools (optionally scoped to a workspace)
-consumers = forge.get_all_tool_schemas(workspace_id="papers_abc")
+consumers = ctx.get_all_tool_schemas(workspace_id="papers_abc")
 ```
 
 Schemas include:
@@ -311,18 +342,18 @@ These cover 90% of what agents need. Import them, pass to `@producer`, done. The
 
 ```python
 # Simple — name inferred from workspace_type:
-@forge.producer(workspace_type="papers", toolsets=[paginator(forge), text_search(forge)])
+@ctx.producer(workspace_type="papers", toolsets=[paginator(ctx), text_search(ctx)])
 def fetch(query): ...
 
 # Explicit — still works for advanced use:
-pager = paginator(forge, "papers")
+pager = paginator(ctx, "papers")
 ```
 
-### `paginator(forge, name)` — List Navigation
+### `paginator(ctx, name)` — List Navigation
 
 ```python
 from ctxtual.utils import paginator
-pager = paginator(forge, "papers")  # data_shape="list"
+pager = paginator(ctx, "papers")  # data_shape="list"
 ```
 
 | Tool | Description |
@@ -332,11 +363,11 @@ pager = paginator(forge, "papers")  # data_shape="list"
 | `{name}_get_item(workspace_id, index)` | Single item by zero-based index |
 | `{name}_get_slice(workspace_id, start=0, end=20)` | Arbitrary slice |
 
-### `text_search(forge, name, *, fields=None)` — Full-Text Search
+### `text_search(ctx, name, *, fields=None)` — Full-Text Search
 
 ```python
 from ctxtual.utils import text_search
-search = text_search(forge, "papers", fields=["title", "abstract"])  # data_shape="list"
+search = text_search(ctx, "papers", fields=["title", "abstract"])  # data_shape="list"
 ```
 
 | Tool | Description |
@@ -344,11 +375,11 @@ search = text_search(forge, "papers", fields=["title", "abstract"])  # data_shap
 | `{name}_search(workspace_id, query, max_results=20, case_sensitive=False)` | BM25-ranked full-text search (FTS5 on SQLiteStore, TF scoring on MemoryStore) |
 | `{name}_field_values(workspace_id, field, max_values=50)` | Distinct values for a field (facet discovery) |
 
-### `filter_set(forge, name)` — Structured Filtering
+### `filter_set(ctx, name)` — Structured Filtering
 
 ```python
 from ctxtual.utils import filter_set
-filters = filter_set(forge, "papers")  # data_shape="list"
+filters = filter_set(ctx, "papers")  # data_shape="list"
 ```
 
 | Tool | Description |
@@ -356,13 +387,13 @@ filters = filter_set(forge, "papers")  # data_shape="list"
 | `{name}_filter_by(workspace_id, field, value, operator="eq")` | Filter by field. Operators: `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `contains`, `startswith` |
 | `{name}_sort_by(workspace_id, field, descending=False, limit=100)` | Sort by field |
 
-### `kv_reader(forge, name)` — Dict Workspaces
+### `kv_reader(ctx, name)` — Dict Workspaces
 
 For single-document workspaces (config, metadata, API responses that are dicts, not lists).
 
 ```python
 from ctxtual.utils import kv_reader
-kv = kv_reader(forge, "config")  # data_shape="dict"
+kv = kv_reader(ctx, "config")  # data_shape="dict"
 ```
 
 | Tool | Description |
@@ -370,13 +401,13 @@ kv = kv_reader(forge, "config")  # data_shape="dict"
 | `{name}_get_keys(workspace_id)` | List top-level keys |
 | `{name}_get_value(workspace_id, key)` | Read value at key |
 
-### `text_content(forge, name)` — Raw Text / Scalar Navigation
+### `text_content(ctx, name)` — Raw Text / Scalar Navigation
 
 For producers that return a **string** (HTML page, PDF text, log file, API response body). Instead of stuffing the entire string into context, the agent navigates it with character-based pagination and search.
 
 ```python
 from ctxtual.utils import text_content
-reader = text_content(forge, "page")  # data_shape="scalar"
+reader = text_content(ctx, "page")  # data_shape="scalar"
 ```
 
 | Tool | Description |
@@ -388,7 +419,7 @@ reader = text_content(forge, "page")  # data_shape="scalar"
 **Example — webpage producer:**
 
 ```python
-@forge.producer(workspace_type="page", toolsets=[reader])
+@ctx.producer(workspace_type="page", toolsets=[reader])
 def read_webpage(url: str) -> str:
     return requests.get(url).text  # Could be 100KB of HTML
 
@@ -404,20 +435,20 @@ When you want to use **list-based** tools (paginator, filter, pipeline) with tex
 from ctxtual import chunk_text, split_sections, split_markdown_sections
 
 # Fixed-size overlapping chunks (good for embeddings, RAG)
-@forge.producer(workspace_type="chunks", toolsets=[pager, search])
+@ctx.producer(workspace_type="chunks", toolsets=[pager, search])
 def ingest_document(path: str) -> list[dict]:
     text = open(path).read()
     return chunk_text(text, chunk_size=2000, overlap=200)
     # → [{"chunk_index": 0, "text": "...", "char_offset": 0}, ...]
 
 # Split by blank lines (paragraphs)
-@forge.producer(workspace_type="paragraphs", toolsets=[pager])
+@ctx.producer(workspace_type="paragraphs", toolsets=[pager])
 def split_doc(text: str) -> list[dict]:
     return split_sections(text, separator="\n\n")
     # → [{"section_index": 0, "text": "First paragraph..."}, ...]
 
 # Split by Markdown headers
-@forge.producer(workspace_type="sections", toolsets=[pager, search])
+@ctx.producer(workspace_type="sections", toolsets=[pager, search])
 def parse_markdown(content: str) -> list[dict]:
     return split_markdown_sections(content)
     # → [{"section_index": 0, "heading": "Introduction", "level": 1, "text": "..."}, ...]
@@ -425,7 +456,7 @@ def parse_markdown(content: str) -> list[dict]:
 
 All transforms pass non-strings through unchanged, so they're safe in pipelines that might receive mixed data.
 
-### `pipeline(forge, name)` — Declarative Data Pipelines
+### `pipeline(ctx, name)` — Declarative Data Pipelines
 
 The most powerful built-in. Instead of the LLM making 4+ round-trips
 (search → filter → sort → limit), it describes the entire chain in **one tool call**.
@@ -436,7 +467,7 @@ compound operations in a single step, framework-agnostic, works with any LLM.
 
 ```python
 from ctxtual.utils import pipeline
-pipe = pipeline(forge, "papers")  # data_shape="list"
+pipe = pipeline(ctx, "papers")  # data_shape="list"
 ```
 
 | Tool | Description |
@@ -465,7 +496,7 @@ pipe = pipeline(forge, "papers")  # data_shape="list"
 **Example — what would take 4 tool calls in 1:**
 
 ```python
-result = forge.dispatch_tool_call("papers_pipe", {
+result = ctx.dispatch_tool_call("papers_pipe", {
     "workspace_id": wid,
     "steps": [
         {"search": {"query": "neural networks"}},
@@ -481,7 +512,7 @@ result = forge.dispatch_tool_call("papers_pipe", {
 **Example — tag frequency analysis (flatten → group → sort):**
 
 ```python
-result = forge.dispatch_tool_call("papers_pipe", {
+result = ctx.dispatch_tool_call("papers_pipe", {
     "workspace_id": wid,
     "steps": [
         {"flatten": "tags"},
@@ -495,7 +526,7 @@ result = forge.dispatch_tool_call("papers_pipe", {
 **Example — save pipeline result as a new workspace:**
 
 ```python
-result = forge.dispatch_tool_call("papers_pipe", {
+result = ctx.dispatch_tool_call("papers_pipe", {
     "workspace_id": wid,
     "steps": [{"filter": {"author": "Alice"}}, {"sort": {"field": "year"}}],
     "save_as": "alice_papers",  # stored as a new workspace
@@ -510,7 +541,7 @@ result = forge.dispatch_tool_call("papers_pipe", {
 When built-ins aren't enough, create domain-specific tools:
 
 ```python
-analytics = forge.toolset("transactions")
+analytics = ctx.toolset("transactions")
 analytics.data_shape = "list"  # Validates payload shape at both produce-time and tool-time
 
 @analytics.tool(
@@ -612,7 +643,7 @@ All query and mutation methods have default implementations that work on any sto
 Workspaces are not read-only. Agents can modify data in place:
 
 ```python
-store = forge.store
+store = ctx.store
 
 # Append new items to an existing workspace
 store.append_items("tasks_sprint_1", [{"title": "New task", "status": "todo"}])
@@ -639,14 +670,14 @@ All mutations maintain FTS index consistency on SQLiteStore.
 from ctxtual.integrations.openai import to_openai_tools, has_tool_calls, handle_tool_calls
 
 # Get tool schemas
-tools = to_openai_tools(forge)
+tools = to_openai_tools(ctx)
 
 # In your agent loop
 response = client.chat.completions.create(model="gpt-5-mini", messages=messages, tools=tools)
 
 if has_tool_calls(response):
     # Dispatch all tool calls, get tool-result messages
-    tool_messages = handle_tool_calls(forge, response)
+    tool_messages = handle_tool_calls(ctx, response)
     messages.append(response.choices[0].message)
     messages.extend(tool_messages)
 ```
@@ -656,12 +687,12 @@ if has_tool_calls(response):
 ```python
 from ctxtual.integrations.anthropic import to_anthropic_tools, has_tool_use, handle_tool_use
 
-tools = to_anthropic_tools(forge)  # Anthropic's flat schema format
+tools = to_anthropic_tools(ctx)  # Anthropic's flat schema format
 
 response = client.messages.create(model="claude-sonnet-4.6", tools=tools, messages=messages)
 
 if has_tool_use(response):
-    tool_results = handle_tool_use(forge, response)  # Returns tool_result content blocks
+    tool_results = handle_tool_use(ctx, response)  # Returns tool_result content blocks
     messages.append({"role": "assistant", "content": response.content})
     messages.append({"role": "user", "content": tool_results})
 ```
@@ -672,7 +703,7 @@ if has_tool_use(response):
 from ctxtual.integrations.langchain import to_langchain_tools
 
 # Returns list of StructuredTool instances — plug into any LangChain agent
-tools = to_langchain_tools(forge)
+tools = to_langchain_tools(ctx)
 agent = create_react_agent(llm, tools)
 ```
 
@@ -684,14 +715,14 @@ All adapters are **zero-hard-dependency** — they duck-type against SDK objects
 
 ctxtual is designed for production web servers (FastAPI, Django, Flask) serving concurrent agent sessions:
 
-- **`Forge`** — `threading.RLock` protects all registration dicts
+- **`Ctx`** — `threading.RLock` protects all registration dicts
 - **`MemoryStore`** — `threading.RLock` protects all data access; `get_meta()` returns deep copies
 - **`SQLiteStore`** — per-thread connections, `threading.RLock`, `WAL` journal mode
 - **Transactions** — `store.transaction()` context manager for atomic multi-step operations (nesting supported in SQLiteStore)
 
 ```python
-# Safe: one Forge instance, many concurrent requests
-forge = Forge(store=MemoryStore(max_workspaces=1000), default_ttl=1800)
+# Safe: one Ctx instance, many concurrent requests
+ctx = Ctx(store=MemoryStore(max_workspaces=1000), default_ttl=1800)
 
 @app.post("/search")
 async def search(query: str):
@@ -699,7 +730,7 @@ async def search(query: str):
 
 @app.get("/explore/{workspace_id}")
 async def explore(workspace_id: str, page: int = 0):
-    return forge.dispatch_tool_call("papers_paginate", {"workspace_id": workspace_id, "page": page})
+    return ctx.dispatch_tool_call("papers_paginate", {"workspace_id": workspace_id, "page": page})
 ```
 
 ---
@@ -727,7 +758,7 @@ Every error includes `suggested_action` — the LLM reads it and knows exactly w
 ### Deterministic Workspace IDs (Idempotency)
 
 ```python
-@forge.producer(workspace_type="inventory", toolsets=[pager], key="inv_{warehouse}")
+@ctx.producer(workspace_type="inventory", toolsets=[pager], key="inv_{warehouse}")
 def sync_inventory(warehouse: str) -> list:
     return fetch_from_wms(warehouse)
 
@@ -739,17 +770,17 @@ sync_inventory(warehouse="us-east")  # Overwrites same workspace — no duplicat
 
 ```python
 # Step 1: Load raw data
-@forge.producer(workspace_type="raw", toolsets=[raw_pager])
+@ctx.producer(workspace_type="raw", toolsets=[raw_pager])
 def ingest(source: str) -> list: ...
 
 # Step 2: Filter and enrich
-@forge.consumer(workspace_type="raw", produces="clean", produces_toolsets=[clean_pager])
+@ctx.consumer(workspace_type="raw", produces="clean", produces_toolsets=[clean_pager])
 def clean(workspace_id: str, forge_ctx: ConsumerContext):
     data = forge_ctx.get_items()
     return forge_ctx.emit([normalize(d) for d in data if d["quality"] > 0.5])
 
 # Step 3: Aggregate into a report
-@forge.consumer(workspace_type="clean", produces="report", produces_toolsets=[report_kv])
+@ctx.consumer(workspace_type="clean", produces="report", produces_toolsets=[report_kv])
 def summarize(workspace_id: str, forge_ctx: ConsumerContext):
     items = forge_ctx.get_items()
     return forge_ctx.emit({"total": len(items), "summary": aggregate(items)})
@@ -763,18 +794,18 @@ Multiple agents share one store. Each agent reads/writes workspaces. Workspace m
 
 ```python
 shared_store = SQLiteStore("shared.db")
-forge = Forge(store=shared_store)
+ctx = Ctx(store=shared_store)
 
 # Agent A: collect data
-@forge.producer(workspace_type="raw", toolsets=[...], meta={"agent": "collector"})
+@ctx.producer(workspace_type="raw", toolsets=[...], meta={"agent": "collector"})
 def collect(topic: str) -> list: ...
 
 # Agent B: analyze
-@forge.consumer(workspace_type="raw", produces="analysis", meta={"agent": "analyst"})
+@ctx.consumer(workspace_type="raw", produces="analysis", meta={"agent": "analyst"})
 def analyze(workspace_id: str, forge_ctx: ConsumerContext): ...
 
 # Agent C: write report from analysis
-@forge.consumer(workspace_type="analysis", produces="report", meta={"agent": "writer"})
+@ctx.consumer(workspace_type="analysis", produces="report", meta={"agent": "writer"})
 def report(workspace_id: str, forge_ctx: ConsumerContext): ...
 ```
 
@@ -793,7 +824,7 @@ bound.papers_get_item(index=5)   # Cleaner API for sub-agents
 Pre-process data before storage — normalize, deduplicate, trim:
 
 ```python
-@forge.producer(
+@ctx.producer(
     workspace_type="papers",
     toolsets=[pager],
     transform=lambda papers: [
@@ -807,14 +838,14 @@ def fetch_papers(query: str) -> list: ...
 ### TTL & Automatic Cleanup
 
 ```python
-forge = Forge(store=MemoryStore(), default_ttl=3600)  # 1 hour default
+ctx = Ctx(store=MemoryStore(), default_ttl=3600)  # 1 hour default
 
 # Override per-producer
-@forge.producer(workspace_type="cache", toolsets=[pager], ttl=300)  # 5 min
+@ctx.producer(workspace_type="cache", toolsets=[pager], ttl=300)  # 5 min
 def fetch_live_prices() -> list: ...
 
 # Sweep expired workspaces (call periodically in production)
-expired_ids = forge.sweep_expired()
+expired_ids = ctx.sweep_expired()
 ```
 
 ### System Prompt Generation
@@ -823,10 +854,10 @@ expired_ids = forge.sweep_expired()
 # Auto-generate a system prompt from registered producers and tools.
 # Includes: workspace pattern, producer descriptions, pipeline syntax
 # (if registered), exploration tools, and error recovery guidance.
-system = forge.system_prompt(preamble="You are a research assistant.")
+system = ctx.system_prompt(preamble="You are a research assistant.")
 ```
 
-The generated prompt adapts to your forge configuration — if you register
+The generated prompt adapts to your ctx configuration — if you register
 pipeline tools, it includes pipeline syntax; if you register search, it
 mentions search. Each producer is listed by name with its docstring summary.
 
@@ -854,10 +885,10 @@ Fields not present in every item are omitted from `required`.
 ## Workspace Introspection
 
 ```python
-forge.list_workspaces()                    # All workspace IDs
-forge.list_workspaces("papers")            # Filtered by type
+ctx.list_workspaces()                    # All workspace IDs
+ctx.list_workspaces("papers")            # Filtered by type
 
-meta = forge.workspace_meta("papers_abc")
+meta = ctx.workspace_meta("papers_abc")
 meta.workspace_id          # "papers_abc"
 meta.workspace_type        # "papers"
 meta.data_shape            # "list", "dict", or "scalar"
@@ -870,8 +901,8 @@ meta.ttl                   # 3600.0 or None
 meta.is_expired            # True/False
 meta.extra                 # {"source": "arxiv"}
 
-forge.drop_workspace("papers_abc")
-forge.clear()                              # Drop all workspaces
+ctx.drop_workspace("papers_abc")
+ctx.clear()                              # Drop all workspaces
 ```
 
 ---
@@ -914,7 +945,7 @@ uv run python examples/01_quickstart.py
 
 **5. Zero dependencies.** The core library uses only the Python standard library. You don't inherit someone else's dependency tree.
 
-**6. Thread-safe by default.** One Forge instance handles concurrent requests. No external locking required.
+**6. Thread-safe by default.** One Ctx instance handles concurrent requests. No external locking required.
 
 ---
 
@@ -926,7 +957,7 @@ uv run ruff check src/ tests/    # Lint
 ```
 
 Test coverage includes:
-- Core forge operations (producers, consumers, dispatch)
+- Core ctx operations (producers, consumers, dispatch)
 - Both storage backends (MemoryStore, SQLiteStore)
 - All built-in toolsets (paginator, search, filter, kv_reader, pipeline)
 - All integration adapters (OpenAI, Anthropic, LangChain)
@@ -942,24 +973,24 @@ Test coverage includes:
 
 ## API Reference
 
-### Forge
+### Ctx
 
 | Method | Description |
 |--------|-------------|
-| `Forge(store, *, default_notify, default_ttl, max_items)` | Create orchestrator |
-| `@forge.producer(workspace_type, toolsets, key, transform, meta, notify, ttl)` | Producer decorator |
-| `@forge.consumer(workspace_type, produces, produces_toolsets)` | Consumer decorator |
-| `forge.toolset(name, *, enforce_type)` | Create/get a ToolSet |
-| `forge.dispatch_tool_call(tool_name, arguments)` | Route a tool call |
-| `forge.get_tools(workspace_id=None)` | All tool schemas (OpenAI format) |
-| `forge.get_producer_schemas()` | Producer-only schemas |
-| `forge.get_all_tool_schemas(workspace_id=None)` | Consumer-only schemas |
-| `forge.system_prompt(preamble="")` | Auto-generated system prompt |
-| `forge.list_workspaces(workspace_type=None)` | List workspace IDs |
-| `forge.workspace_meta(workspace_id)` | Get workspace metadata |
-| `forge.drop_workspace(workspace_id)` | Delete a workspace |
-| `forge.sweep_expired()` | Delete expired workspaces |
-| `forge.clear()` | Delete all workspaces |
+| `Ctx(store, *, default_notify, default_ttl, max_items)` | Create orchestrator |
+| `@ctx.producer(workspace_type, toolsets, key, transform, meta, notify, ttl)` | Producer decorator |
+| `@ctx.consumer(workspace_type, produces, produces_toolsets)` | Consumer decorator |
+| `ctx.toolset(name, *, enforce_type)` | Create/get a ToolSet |
+| `ctx.dispatch_tool_call(tool_name, arguments)` | Route a tool call |
+| `ctx.get_tools(workspace_id=None)` | All tool schemas (OpenAI format) |
+| `ctx.get_producer_schemas()` | Producer-only schemas |
+| `ctx.get_all_tool_schemas(workspace_id=None)` | Consumer-only schemas |
+| `ctx.system_prompt(preamble="")` | Auto-generated system prompt |
+| `ctx.list_workspaces(workspace_type=None)` | List workspace IDs |
+| `ctx.workspace_meta(workspace_id)` | Get workspace metadata |
+| `ctx.drop_workspace(workspace_id)` | Delete a workspace |
+| `ctx.sweep_expired()` | Delete expired workspaces |
+| `ctx.clear()` | Delete all workspaces |
 
 ### ToolSet
 

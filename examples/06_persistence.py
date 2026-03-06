@@ -20,7 +20,7 @@ Run:
 import tempfile
 from pathlib import Path
 
-from ctxtual import Forge, SQLiteStore
+from ctxtual import Ctx, SQLiteStore
 from ctxtual.toolset import ToolSet
 from ctxtual.utils import paginator, text_search
 
@@ -28,24 +28,25 @@ from ctxtual.utils import paginator, text_search
 DB_PATH = Path(tempfile.mkdtemp()) / "tasks.db"
 
 
-def create_forge(db_path: Path = DB_PATH) -> Forge:
-    """Create a Forge instance with SQLite persistence."""
-    return Forge(
+def create_forge(db_path: Path = DB_PATH) -> Ctx:
+    """Create a Ctx instance with SQLite persistence."""
+    return Ctx(
         store=SQLiteStore(path=db_path),
         default_ttl=None,  # Tasks never expire
     )
 
 
-# ── Custom toolset: task operations (mutations) ─────────────────────────
+# Custom toolset: task operations (mutations)
 
-def task_ops(forge: Forge) -> ToolSet:
+
+def task_ops(ctx: Ctx) -> ToolSet:
     """
     Create a ToolSet with task-specific mutation tools.
 
     These go beyond read-only exploration — they let the agent
     modify task state in place.
     """
-    ts = forge.toolset("tasks")
+    ts = ctx.toolset("tasks")
     ts.data_shape = "list"
 
     @ts.tool(name="tasks_complete")
@@ -118,13 +119,14 @@ def task_ops(forge: Forge) -> ToolSet:
     return ts
 
 
-# ── Producer: load tasks ─────────────────────────────────────────────────
+# Producer: load tasks
 
-def setup_producer(forge: Forge, ops: ToolSet):
-    pager  = paginator(forge, "tasks")
-    search = text_search(forge, "tasks", fields=["title", "priority", "status"])
 
-    @forge.producer(
+def setup_producer(ctx: Ctx, ops: ToolSet):
+    pager = paginator(ctx, "tasks")
+    search = text_search(ctx, "tasks", fields=["title", "priority", "status"])
+
+    @ctx.producer(
         workspace_type="tasks",
         toolsets=[pager, search, ops],
         key="tasks_sprint_{sprint}",  # Deterministic: same sprint = same workspace
@@ -136,27 +138,58 @@ def setup_producer(forge: Forge, ops: ToolSet):
             sprint: Sprint identifier (e.g., 'current', '2024-w48').
         """
         return [
-            {"title": "Implement user authentication",  "priority": "critical", "status": "in_progress", "notes": []},
-            {"title": "Write API documentation",        "priority": "high",     "status": "todo",        "notes": []},
-            {"title": "Fix pagination bug on /search",  "priority": "high",     "status": "todo",        "notes": []},
-            {"title": "Add dark mode toggle",           "priority": "medium",   "status": "todo",        "notes": []},
-            {"title": "Refactor database migrations",   "priority": "medium",   "status": "todo",        "notes": []},
-            {"title": "Update dependency versions",     "priority": "low",      "status": "todo",        "notes": []},
+            {
+                "title": "Implement user authentication",
+                "priority": "critical",
+                "status": "in_progress",
+                "notes": [],
+            },
+            {
+                "title": "Write API documentation",
+                "priority": "high",
+                "status": "todo",
+                "notes": [],
+            },
+            {
+                "title": "Fix pagination bug on /search",
+                "priority": "high",
+                "status": "todo",
+                "notes": [],
+            },
+            {
+                "title": "Add dark mode toggle",
+                "priority": "medium",
+                "status": "todo",
+                "notes": [],
+            },
+            {
+                "title": "Refactor database migrations",
+                "priority": "medium",
+                "status": "todo",
+                "notes": [],
+            },
+            {
+                "title": "Update dependency versions",
+                "priority": "low",
+                "status": "todo",
+                "notes": [],
+            },
         ]
 
     return load_tasks
 
 
-# ── Simulation ───────────────────────────────────────────────────────────
+# Simulation
+
 
 def simulate():
     print("=" * 70)
     print("PHASE 1: Initial session — load tasks and work on them")
     print("=" * 70)
 
-    forge = create_forge()
-    ops = task_ops(forge)
-    load_tasks = setup_producer(forge, ops)
+    ctx = create_forge()
+    ops = task_ops(ctx)
+    load_tasks = setup_producer(ctx, ops)
 
     # Load tasks
     ref = load_tasks(sprint="current")
@@ -164,7 +197,7 @@ def simulate():
     print(f"\nLoaded {ref['item_count']} tasks → {ws_id}")
 
     # Agent browses tasks
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "tasks_paginate", {"workspace_id": ws_id, "page": 0, "size": 10}
     )
     for i, task in enumerate(result["result"]["items"]):
@@ -172,38 +205,46 @@ def simulate():
 
     # Agent completes a task
     print("\n[Action] Complete task 0 (user auth)")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "tasks_complete", {"workspace_id": ws_id, "index": 0}
     )
     print(f"  → {result['message']}")
 
     # Agent adds a note
     print("\n[Action] Add note to task 2 (pagination bug)")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "tasks_add_note",
-        {"workspace_id": ws_id, "index": 2, "note": "Root cause: off-by-one in OFFSET calc"},
+        {
+            "workspace_id": ws_id,
+            "index": 2,
+            "note": "Root cause: off-by-one in OFFSET calc",
+        },
     )
     print(f"  → {result['message']}")
 
     # Agent adds a new task
     print("\n[Action] Add new urgent task")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "tasks_add",
-        {"workspace_id": ws_id, "title": "Hotfix: login 500 error on Safari", "priority": "critical"},
+        {
+            "workspace_id": ws_id,
+            "title": "Hotfix: login 500 error on Safari",
+            "priority": "critical",
+        },
     )
     print(f"  → {result['message']} (total: {result['total_tasks']})")
 
     # Agent removes a low-priority task
     print("\n[Action] Remove task 5 (update deps — deprioritized)")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "tasks_remove", {"workspace_id": ws_id, "indices": "5"}
     )
     print(f"  → {result['message']} ({result['remaining']} remaining)")
 
-    forge.close()
+    ctx.close()
     print(f"\n  Session closed. DB saved at: {DB_PATH}")
 
-    # ── Phase 2: Restart ─────────────────────────────────────────────────
+    # Phase 2: Restart
 
     print(f"\n{'=' * 70}")
     print("PHASE 2: New process — resume from SQLite")
@@ -229,7 +270,9 @@ def simulate():
     )
     for i, task in enumerate(result["result"]["items"]):
         notes = f" — notes: {task['notes']}" if task.get("notes") else ""
-        print(f"  [{i}] [{task['status']:>11}] {task['priority']:>8} | {task['title']}{notes}")
+        print(
+            f"  [{i}] [{task['status']:>11}] {task['priority']:>8} | {task['title']}{notes}"
+        )
 
     # Search still works
     result = forge2.dispatch_tool_call(

@@ -13,22 +13,23 @@ Run:
     uv run python examples/02_rag_support_agent.py
 """
 
-from ctxtual import Forge, MemoryStore
-from ctxtual.utils import paginator, text_search, filter_set
+from ctxtual import Ctx, MemoryStore
+from ctxtual.utils import filter_set, paginator, text_search
 
-# ── Setup ────────────────────────────────────────────────────────────────
+# Setup
 
-forge = Forge(store=MemoryStore(), default_ttl=3600)
+ctx = Ctx(store=MemoryStore(), default_ttl=3600)
 
 # Create toolsets for "articles" workspace type
-pager   = paginator(forge, "articles")
-search  = text_search(forge, "articles", fields=["title", "body", "tags"])
-filters = filter_set(forge, "articles")
+pager = paginator(ctx, "articles")
+search = text_search(ctx, "articles", fields=["title", "body", "tags"])
+filters = filter_set(ctx, "articles")
 
 
-# ── Producer: load knowledge base ────────────────────────────────────────
+# Producer: load knowledge base
 
-@forge.producer(
+
+@ctx.producer(
     workspace_type="articles",
     toolsets=[pager, search, filters],
     # Deterministic key so repeated calls reuse the same workspace
@@ -45,7 +46,7 @@ def load_knowledge_base(category: str = "all") -> list[dict]:
             "id": "art-001",
             "title": "How to reset your password",
             "body": "Go to Settings > Security > Reset Password. You'll receive "
-                    "a confirmation email within 5 minutes.",
+            "a confirmation email within 5 minutes.",
             "category": "account",
             "tags": ["password", "security", "account"],
             "views": 15420,
@@ -54,7 +55,7 @@ def load_knowledge_base(category: str = "all") -> list[dict]:
             "id": "art-002",
             "title": "Billing cycle explained",
             "body": "We bill on the 1st of each month. Pro-rated charges apply "
-                    "when you upgrade mid-cycle. Downgrade takes effect next cycle.",
+            "when you upgrade mid-cycle. Downgrade takes effect next cycle.",
             "category": "billing",
             "tags": ["billing", "subscription", "payment"],
             "views": 8930,
@@ -63,8 +64,8 @@ def load_knowledge_base(category: str = "all") -> list[dict]:
             "id": "art-003",
             "title": "API rate limits",
             "body": "Free tier: 100 req/min. Pro: 1000 req/min. Enterprise: "
-                    "unlimited. Rate limit headers are included in every response. "
-                    "Use exponential backoff when you hit 429 errors.",
+            "unlimited. Rate limit headers are included in every response. "
+            "Use exponential backoff when you hit 429 errors.",
             "category": "api",
             "tags": ["api", "rate-limit", "developer"],
             "views": 22100,
@@ -73,8 +74,8 @@ def load_knowledge_base(category: str = "all") -> list[dict]:
             "id": "art-004",
             "title": "Two-factor authentication setup",
             "body": "Enable 2FA in Settings > Security > Two-Factor. We support "
-                    "TOTP apps (Google Authenticator, Authy) and hardware keys "
-                    "(YubiKey). SMS is not supported for security reasons.",
+            "TOTP apps (Google Authenticator, Authy) and hardware keys "
+            "(YubiKey). SMS is not supported for security reasons.",
             "category": "account",
             "tags": ["2fa", "security", "account", "authentication"],
             "views": 11200,
@@ -83,9 +84,9 @@ def load_knowledge_base(category: str = "all") -> list[dict]:
             "id": "art-005",
             "title": "Webhook configuration",
             "body": "Configure webhooks in Settings > Integrations > Webhooks. "
-                    "We send POST requests with JSON payloads. Events: "
-                    "user.created, order.completed, subscription.changed. "
-                    "Retry policy: 3 attempts with exponential backoff.",
+            "We send POST requests with JSON payloads. Events: "
+            "user.created, order.completed, subscription.changed. "
+            "Retry policy: 3 attempts with exponential backoff.",
             "category": "api",
             "tags": ["webhook", "api", "integration", "developer"],
             "views": 6800,
@@ -94,8 +95,8 @@ def load_knowledge_base(category: str = "all") -> list[dict]:
             "id": "art-006",
             "title": "Cancellation and refund policy",
             "body": "Cancel anytime from Settings > Subscription > Cancel. "
-                    "Refunds are processed within 5-10 business days. "
-                    "Annual plans get pro-rated refund for unused months.",
+            "Refunds are processed within 5-10 business days. "
+            "Annual plans get pro-rated refund for unused months.",
             "category": "billing",
             "tags": ["cancellation", "refund", "billing"],
             "views": 19500,
@@ -104,9 +105,9 @@ def load_knowledge_base(category: str = "all") -> list[dict]:
             "id": "art-007",
             "title": "Data export and GDPR compliance",
             "body": "Request a full data export from Settings > Privacy > Export. "
-                    "We process requests within 48 hours. Format: JSON archive. "
-                    "For deletion requests (right to be forgotten), contact "
-                    "privacy@example.com.",
+            "We process requests within 48 hours. Format: JSON archive. "
+            "For deletion requests (right to be forgotten), contact "
+            "privacy@example.com.",
             "category": "privacy",
             "tags": ["gdpr", "privacy", "data-export", "compliance"],
             "views": 4200,
@@ -114,7 +115,8 @@ def load_knowledge_base(category: str = "all") -> list[dict]:
     ]
 
 
-# ── Simulate an agent answering a support question ───────────────────────
+# Simulate an agent answering a support question
+
 
 def simulate_agent():
     """
@@ -135,7 +137,7 @@ def simulate_agent():
     ws_id = ref["workspace_id"]
 
     # Step 2: Agent searches for "2FA" using text_search
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "articles_search",
         {"workspace_id": ws_id, "query": "2FA authentication", "max_results": 5},
     )
@@ -144,7 +146,7 @@ def simulate_agent():
         print(f"  • {match['title']}")
 
     # Step 3: Agent reads the most relevant article
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "articles_get_item",
         {"workspace_id": ws_id, "index": 3},  # 2FA article
     )
@@ -152,7 +154,7 @@ def simulate_agent():
     print(f"  Body: {result['body'][:80]}...")
 
     # Step 4: Agent also checks related security articles
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "articles_filter_by",
         {"workspace_id": ws_id, "field": "category", "value": "account"},
     )
@@ -161,7 +163,7 @@ def simulate_agent():
         print(f"  • {item['title']} ({item['views']:,} views)")
 
     # Step 5: Agent checks most viewed articles (popular = likely helpful)
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "articles_sort_by",
         {"workspace_id": ws_id, "field": "views", "descending": True, "limit": 3},
     )
@@ -170,7 +172,7 @@ def simulate_agent():
         print(f"  • {item['title']} — {item['views']:,} views")
 
     # Step 6: Discover what categories exist
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "articles_field_values",
         {"workspace_id": ws_id, "field": "category"},
     )

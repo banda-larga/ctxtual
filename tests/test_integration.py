@@ -1,7 +1,7 @@
 """End-to-end integration tests — full producer → consumer → derived flows."""
 
-from ctxtual import Forge, MemoryStore
-from ctxtual.forge import ConsumerContext
+from ctxtual import Ctx, MemoryStore
+from ctxtual.ctx import ConsumerContext
 from ctxtual.store.sqlite import SQLiteStore
 from ctxtual.utils import filter_set, paginator, text_search
 
@@ -9,11 +9,11 @@ from ctxtual.utils import filter_set, paginator, text_search
 class TestEndToEnd:
     def test_full_flow_memory(self) -> None:
         """Producer stores, consumer reads, everything works with MemoryStore."""
-        forge = Forge(store=MemoryStore())
-        pager = paginator(forge, "items")
-        search = text_search(forge, "items", fields=["name"])
+        ctx = Ctx(store=MemoryStore())
+        pager = paginator(ctx, "items")
+        search = text_search(ctx, "items", fields=["name"])
 
-        @forge.producer(workspace_type="items", toolsets=[pager, search])
+        @ctx.producer(workspace_type="items", toolsets=[pager, search])
         def load_items() -> list:
             return [
                 {"name": "Widget A", "price": 10},
@@ -40,10 +40,10 @@ class TestEndToEnd:
     def test_full_flow_sqlite(self, tmp_path) -> None:
         """Same flow with SQLiteStore."""
         store = SQLiteStore(tmp_path / "e2e.db")
-        forge = Forge(store=store)
-        pager = paginator(forge, "items")
+        ctx = Ctx(store=store)
+        pager = paginator(ctx, "items")
 
-        @forge.producer(workspace_type="items", toolsets=[pager])
+        @ctx.producer(workspace_type="items", toolsets=[pager])
         def load_items() -> list:
             return [{"id": i} for i in range(50)]
 
@@ -60,11 +60,11 @@ class TestEndToEnd:
 
     def test_derived_workspace_flow(self) -> None:
         """Consumer produces a derived workspace from filtered results."""
-        forge = Forge(store=MemoryStore())
-        items_pager = paginator(forge, "items")
-        filtered_pager = paginator(forge, "filtered")
+        ctx = Ctx(store=MemoryStore())
+        items_pager = paginator(ctx, "items")
+        filtered_pager = paginator(ctx, "filtered")
 
-        @forge.producer(workspace_type="items", toolsets=[items_pager])
+        @ctx.producer(workspace_type="items", toolsets=[items_pager])
         def load() -> list:
             return [
                 {"name": "A", "category": "x"},
@@ -76,7 +76,7 @@ class TestEndToEnd:
         result = load()
         src_id = result["workspace_id"]
 
-        @forge.consumer(
+        @ctx.consumer(
             workspace_type="items",
             produces="filtered",
             produces_toolsets=[filtered_pager],
@@ -101,30 +101,30 @@ class TestEndToEnd:
 
     def test_multiple_producers_multiple_types(self) -> None:
         """Multiple workspace types coexist."""
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
 
-        @forge.producer(workspace_type="papers", key="papers_1")
+        @ctx.producer(workspace_type="papers", key="papers_1")
         def load_papers() -> list:
             return [{"title": "Paper 1"}]
 
-        @forge.producer(workspace_type="employees", key="employees_1")
+        @ctx.producer(workspace_type="employees", key="employees_1")
         def load_employees() -> list:
             return [{"name": "Alice"}, {"name": "Bob"}]
 
         load_papers()
         load_employees()
 
-        assert forge.list_workspaces("papers") == ["papers_1"]
-        assert forge.list_workspaces("employees") == ["employees_1"]
-        assert len(forge.list_workspaces()) == 2
+        assert ctx.list_workspaces("papers") == ["papers_1"]
+        assert ctx.list_workspaces("employees") == ["employees_1"]
+        assert len(ctx.list_workspaces()) == 2
 
     def test_overwrite_with_deterministic_key(self) -> None:
         """Re-running a producer with a deterministic key overwrites."""
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
 
         call_count = 0
 
-        @forge.producer(workspace_type="data", key="data_fixed")
+        @ctx.producer(workspace_type="data", key="data_fixed")
         def load() -> list:
             nonlocal call_count
             call_count += 1
@@ -132,16 +132,16 @@ class TestEndToEnd:
 
         load()
         load()
-        assert forge.store.get_items("data_fixed") == [2]
+        assert ctx.store.get_items("data_fixed") == [2]
         # Still only 1 workspace
-        assert forge.list_workspaces() == ["data_fixed"]
+        assert ctx.list_workspaces() == ["data_fixed"]
 
     def test_workspace_with_transform_and_filter(self) -> None:
         """Transform at produce time, filter at consume time."""
-        forge = Forge(store=MemoryStore())
-        filt = filter_set(forge, "data")
+        ctx = Ctx(store=MemoryStore())
+        filt = filter_set(ctx, "data")
 
-        @forge.producer(
+        @ctx.producer(
             workspace_type="data",
             toolsets=[filt],
             transform=lambda items: [
@@ -159,7 +159,7 @@ class TestEndToEnd:
         ws_id = result["workspace_id"]
 
         # Items should have the normalized_price field
-        items = forge.store.get_items(ws_id)
+        items = ctx.store.get_items(ws_id)
         assert all("normalized_price" in i for i in items)
 
         # Filter expensive items

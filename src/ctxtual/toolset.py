@@ -1,5 +1,5 @@
 """
-ToolSet — a named collection of consumer tools scoped to a workspace type.
+ToolSet, a named collection of consumer tools scoped to a workspace type.
 
 A ToolSet does three things:
 
@@ -65,7 +65,7 @@ class ToolSet:
         self._output_hints: dict[str, str | None] = {}
         self._schema_extras: dict[str, dict[str, dict[str, Any]]] = {}
         self._tool_shapes: dict[str, str] = {}
-        # Injected by Forge.register_toolset()
+        # Injected by Ctx.register_toolset()
         self._store: Any | None = None
 
     # Store access
@@ -75,8 +75,8 @@ class ToolSet:
         """Return the attached store, raising if the toolset isn't wired yet."""
         if self._store is None:
             raise RuntimeError(
-                f"ToolSet '{self.name}' has not been attached to a Forge / store. "
-                "Pass it to Forge() or call forge.register_toolset(toolset)."
+                f"ToolSet '{self.name}' has not been attached to a Ctx / store. "
+                "Pass it to Ctx() or call ctx.register_toolset(toolset)."
             )
         return self._store
 
@@ -144,9 +144,11 @@ class ToolSet:
                     if meta is None:
                         raise WorkspaceNotFoundError(
                             workspace_id,
-                            available=self._store.list_workspaces(self.name)
-                            if self._store
-                            else [],
+                            available=(
+                                self._store.list_workspaces(self.name)
+                                if self._store
+                                else []
+                            ),
                         )
                     if meta.is_expired:
                         self._store.drop_workspace(workspace_id)
@@ -159,11 +161,11 @@ class ToolSet:
                             workspace_id,
                             self.name,
                             meta.workspace_type,
-                            matching_workspaces=self._store.list_workspaces(
-                                self.name
-                            )
-                            if self._store
-                            else [],
+                            matching_workspaces=(
+                                self._store.list_workspaces(self.name)
+                                if self._store
+                                else []
+                            ),
                         )
                     meta.touch()
 
@@ -335,15 +337,15 @@ class ToolSpec:
     Deferred toolset — created when a factory is called without a name.
 
     Materialized into a real :class:`ToolSet` when bound to a
-    ``workspace_type`` by :meth:`Forge.producer`.
+    ``workspace_type`` by :meth:`Ctx.producer`.
 
     Usage::
 
         from ctxtual.utils import paginator, text_search
 
-        @forge.producer("papers", toolsets=[
-            paginator(forge),
-            text_search(forge, fields=["title"]),
+        @ctx.producer("papers", toolsets=[
+            paginator(ctx),
+            text_search(ctx, fields=["title"]),
         ])
         def fetch(query: str): ...
     """
@@ -351,16 +353,16 @@ class ToolSpec:
     def __init__(
         self,
         factory: Callable[..., "ToolSet"],
-        forge: Any,
+        ctx: Any,
         **kwargs: Any,
     ) -> None:
         self._factory = factory
-        self._forge = forge
+        self._ctx = ctx
         self._kwargs = kwargs
 
     def materialize(self, name: str) -> "ToolSet":
         """Create the real ToolSet by calling the factory with the given name."""
-        return self._factory(self._forge, name, **self._kwargs)
+        return self._factory(self._ctx, name, **self._kwargs)
 
     def __repr__(self) -> str:
         kw = ", ".join(f"{k}={v!r}" for k, v in self._kwargs.items())
@@ -468,9 +470,7 @@ def _python_type_to_json_schema(annotation: Any) -> dict[str, Any]:
     if origin is tuple:
         schema = {"type": "array"}
         if args:
-            schema["prefixItems"] = [
-                _python_type_to_json_schema(a) for a in args
-            ]
+            schema["prefixItems"] = [_python_type_to_json_schema(a) for a in args]
         return schema
 
     # set[X] / frozenset[X]

@@ -1,5 +1,5 @@
 """
-ctx — context engineering library for AI agents.
+ctxtual — context engineering library for AI agents.
 
 Provides a decorator-based system for managing large tool results:
 instead of returning bulk data directly to an LLM, producers store
@@ -8,14 +8,14 @@ tools then let the agent explore the data incrementally.
 
 Quick start::
 
-    from ctxtual import Forge, MemoryStore
+    from ctxtual import Ctx, MemoryStore
     from ctxtual.utils import paginator, text_search
 
-    forge = Forge(store=MemoryStore())
+    ctx = Ctx(store=MemoryStore())
 
-    @forge.producer(workspace_type="papers", toolsets=[
-        paginator(forge),
-        text_search(forge, fields=["title", "abstract"]),
+    @ctx.producer(workspace_type="papers", toolsets=[
+        paginator(ctx),
+        text_search(ctx, fields=["title", "abstract"]),
     ])
     def fetch_papers(query: str, limit: int = 10_000):
         return database.search(query, limit)
@@ -25,7 +25,7 @@ Quick start::
 """
 
 from ctxtual.exceptions import (
-    ContextForgeError,
+    CtxtualError,
     PayloadTooLargeError,
     ToolExecutionError,
     ToolSetNotRegisteredError,
@@ -33,7 +33,7 @@ from ctxtual.exceptions import (
     WorkspaceNotFoundError,
     WorkspaceTypeMismatchError,
 )
-from ctxtual.forge import ConsumerContext, Forge
+from ctxtual.ctx import ConsumerContext, Ctx
 from ctxtual.store import BaseStore, MemoryStore, SQLiteStore
 from ctxtual.toolset import BoundToolSet, ToolSet, ToolSpec
 from ctxtual.transforms import chunk_text, split_markdown_sections, split_sections
@@ -41,7 +41,7 @@ from ctxtual.types import WorkspaceMeta, WorkspaceRef
 
 __all__ = [
     # Core
-    "Forge",
+    "Ctx",
     "ConsumerContext",
     # ToolSet
     "ToolSet",
@@ -59,7 +59,7 @@ __all__ = [
     "split_sections",
     "split_markdown_sections",
     # Exceptions
-    "ContextForgeError",
+    "CtxtualError",
     "WorkspaceNotFoundError",
     "WorkspaceExpiredError",
     "WorkspaceTypeMismatchError",
@@ -68,4 +68,4 @@ __all__ = [
     "ToolExecutionError",
 ]
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"

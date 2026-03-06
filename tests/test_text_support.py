@@ -8,7 +8,7 @@ text_content toolset, scalar _count fix, and shape mismatch guard.
 import pytest
 
 from ctxtual import (
-    Forge,
+    Ctx,
     MemoryStore,
     chunk_text,
     split_markdown_sections,
@@ -29,8 +29,8 @@ SAMPLE_TEXT = (
 
 
 @pytest.fixture
-def forge():
-    return Forge(store=MemoryStore())
+def ctx():
+    return Ctx(store=MemoryStore())
 
 
 # ── chunk_text transform ────────────────────────────────────────────
@@ -85,10 +85,10 @@ class TestChunkText:
         with pytest.raises(ValueError, match="less than"):
             chunk_text(chunk_size=100, overlap=100)
 
-    def test_with_producer(self, forge):
-        pager = paginator(forge, "doc")
+    def test_with_producer(self, ctx):
+        pager = paginator(ctx, "doc")
 
-        @forge.producer(
+        @ctx.producer(
             workspace_type="doc",
             toolsets=[pager],
             transform=chunk_text(chunk_size=50, overlap=10),
@@ -188,11 +188,11 @@ class TestSplitMarkdownSections:
         data = {"key": "val"}
         assert transform(data) is data
 
-    def test_with_producer_and_pipeline(self, forge):
-        pager = paginator(forge, "md")
-        pipe = pipeline(forge, "md")
+    def test_with_producer_and_pipeline(self, ctx):
+        pager = paginator(ctx, "md")
+        pipe = pipeline(ctx, "md")
 
-        @forge.producer(
+        @ctx.producer(
             workspace_type="md",
             toolsets=[pager, pipe],
             transform=split_markdown_sections(),
@@ -208,7 +208,7 @@ class TestSplitMarkdownSections:
 
         # Pipeline works on sections
         ws_id = ref["workspace_id"]
-        result = forge.dispatch_tool_call("md_pipe", {
+        result = ctx.dispatch_tool_call("md_pipe", {
             "workspace_id": ws_id,
             "steps": [
                 {"filter": {"level": 1}},
@@ -223,17 +223,17 @@ class TestSplitMarkdownSections:
 
 
 class TestTextContent:
-    def test_read_page(self, forge):
-        reader = text_content(forge, "doc")
+    def test_read_page(self, ctx):
+        reader = text_content(ctx, "doc")
 
-        @forge.producer(workspace_type="doc", toolsets=[reader])
+        @ctx.producer(workspace_type="doc", toolsets=[reader])
         def fetch_doc():
             return "A" * 5000
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
 
-        result = forge.dispatch_tool_call("doc_read_page", {
+        result = ctx.dispatch_tool_call("doc_read_page", {
             "workspace_id": ws_id,
             "page": 0,
             "chars_per_page": 1000,
@@ -246,16 +246,16 @@ class TestTextContent:
         assert data["has_next"] is True
         assert data["has_prev"] is False
 
-    def test_read_last_page(self, forge):
-        reader = text_content(forge, "doc")
+    def test_read_last_page(self, ctx):
+        reader = text_content(ctx, "doc")
 
-        @forge.producer(workspace_type="doc", toolsets=[reader])
+        @ctx.producer(workspace_type="doc", toolsets=[reader])
         def fetch_doc():
             return "A" * 5000
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = forge.dispatch_tool_call("doc_read_page", {
+        result = ctx.dispatch_tool_call("doc_read_page", {
             "workspace_id": ws_id,
             "page": 4,
             "chars_per_page": 1000,
@@ -264,88 +264,88 @@ class TestTextContent:
         assert data["has_next"] is False
         assert data["has_prev"] is True
 
-    def test_page_out_of_range(self, forge):
-        reader = text_content(forge, "doc")
+    def test_page_out_of_range(self, ctx):
+        reader = text_content(ctx, "doc")
 
-        @forge.producer(workspace_type="doc", toolsets=[reader])
+        @ctx.producer(workspace_type="doc", toolsets=[reader])
         def fetch_doc():
             return "Hello"
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = forge.dispatch_tool_call("doc_read_page", {
+        result = ctx.dispatch_tool_call("doc_read_page", {
             "workspace_id": ws_id,
             "page": 99,
         })
         data = result.get("result", result)
         assert "error" in data
 
-    def test_search_in_text(self, forge):
-        reader = text_content(forge, "doc")
+    def test_search_in_text(self, ctx):
+        reader = text_content(ctx, "doc")
 
-        @forge.producer(workspace_type="doc", toolsets=[reader])
+        @ctx.producer(workspace_type="doc", toolsets=[reader])
         def fetch_doc():
             return SAMPLE_TEXT
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = forge.dispatch_tool_call("doc_search_in_text", {
+        result = ctx.dispatch_tool_call("doc_search_in_text", {
             "workspace_id": ws_id,
             "query": "neural networks",
         })
         assert result["match_count"] == 1
         assert "neural networks" in result["matches"][0]["context"].lower()
 
-    def test_search_case_insensitive(self, forge):
-        reader = text_content(forge, "doc")
+    def test_search_case_insensitive(self, ctx):
+        reader = text_content(ctx, "doc")
 
-        @forge.producer(workspace_type="doc", toolsets=[reader])
+        @ctx.producer(workspace_type="doc", toolsets=[reader])
         def fetch_doc():
             return "Hello World"
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = forge.dispatch_tool_call("doc_search_in_text", {
+        result = ctx.dispatch_tool_call("doc_search_in_text", {
             "workspace_id": ws_id,
             "query": "HELLO",
         })
         assert result["match_count"] == 1
 
-    def test_search_no_results(self, forge):
-        reader = text_content(forge, "doc")
+    def test_search_no_results(self, ctx):
+        reader = text_content(ctx, "doc")
 
-        @forge.producer(workspace_type="doc", toolsets=[reader])
+        @ctx.producer(workspace_type="doc", toolsets=[reader])
         def fetch_doc():
             return "Hello World"
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = forge.dispatch_tool_call("doc_search_in_text", {
+        result = ctx.dispatch_tool_call("doc_search_in_text", {
             "workspace_id": ws_id,
             "query": "nonexistent",
         })
         assert result["match_count"] == 0
 
-    def test_get_length(self, forge):
-        reader = text_content(forge, "doc")
+    def test_get_length(self, ctx):
+        reader = text_content(ctx, "doc")
 
-        @forge.producer(workspace_type="doc", toolsets=[reader])
+        @ctx.producer(workspace_type="doc", toolsets=[reader])
         def fetch_doc():
             return "Hello\nWorld\n\nThird line"
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = forge.dispatch_tool_call("doc_get_length", {
+        result = ctx.dispatch_tool_call("doc_get_length", {
             "workspace_id": ws_id,
         })
         assert result["chars"] == len("Hello\nWorld\n\nThird line")
         assert result["words"] == 4
         assert result["lines"] == 4
 
-    def test_ref_shows_scalar_shape(self, forge):
-        reader = text_content(forge, "doc")
+    def test_ref_shows_scalar_shape(self, ctx):
+        reader = text_content(ctx, "doc")
 
-        @forge.producer(workspace_type="doc", toolsets=[reader])
+        @ctx.producer(workspace_type="doc", toolsets=[reader])
         def fetch_doc():
             return "Some text"
 
@@ -358,20 +358,20 @@ class TestTextContent:
 
 
 class TestScalarCount:
-    def test_string_count_is_one(self, forge):
-        reader = text_content(forge, "doc")
+    def test_string_count_is_one(self, ctx):
+        reader = text_content(ctx, "doc")
 
-        @forge.producer(workspace_type="doc", toolsets=[reader])
+        @ctx.producer(workspace_type="doc", toolsets=[reader])
         def fetch_doc():
             return "A" * 10000
 
         ref = fetch_doc()
         assert ref["item_count"] == 1  # Not 10000!
 
-    def test_list_count_is_length(self, forge):
-        pager = paginator(forge, "items")
+    def test_list_count_is_length(self, ctx):
+        pager = paginator(ctx, "items")
 
-        @forge.producer(workspace_type="items", toolsets=[pager])
+        @ctx.producer(workspace_type="items", toolsets=[pager])
         def fetch_items():
             return [1, 2, 3]
 
@@ -383,12 +383,12 @@ class TestScalarCount:
 
 
 class TestShapeMismatchGuard:
-    def test_scalar_with_list_toolset_hides_tools(self, forge):
+    def test_scalar_with_list_toolset_hides_tools(self, ctx):
         """List tools should NOT appear in ref when data is scalar."""
-        pager = paginator(forge, "doc")  # expects list
-        reader = text_content(forge, "doc")  # expects scalar
+        pager = paginator(ctx, "doc")  # expects list
+        reader = text_content(ctx, "doc")  # expects scalar
 
-        @forge.producer(workspace_type="doc", toolsets=[pager, reader])
+        @ctx.producer(workspace_type="doc", toolsets=[pager, reader])
         def fetch_doc():
             return "Some text"
 
@@ -401,14 +401,14 @@ class TestShapeMismatchGuard:
         assert "doc_read_page" in tool_names
         assert "doc_search_in_text" in tool_names
 
-    def test_list_with_dict_toolset_hides_tools(self, forge):
+    def test_list_with_dict_toolset_hides_tools(self, ctx):
         """Dict tools should NOT appear in ref when data is list."""
         from ctxtual.utils import kv_reader
 
-        pager = paginator(forge, "mixed")
-        kv = kv_reader(forge, "mixed")
+        pager = paginator(ctx, "mixed")
+        kv = kv_reader(ctx, "mixed")
 
-        @forge.producer(workspace_type="mixed", toolsets=[pager, kv])
+        @ctx.producer(workspace_type="mixed", toolsets=[pager, kv])
         def fetch_data():
             return [{"a": 1}]
 
@@ -419,11 +419,11 @@ class TestShapeMismatchGuard:
         # Dict tools should be filtered out
         assert "mixed_get_keys" not in tool_names
 
-    def test_matching_shape_shows_all_tools(self, forge):
-        pager = paginator(forge, "items")
-        pipe = pipeline(forge, "items")
+    def test_matching_shape_shows_all_tools(self, ctx):
+        pager = paginator(ctx, "items")
+        pipe = pipeline(ctx, "items")
 
-        @forge.producer(workspace_type="items", toolsets=[pager, pipe])
+        @ctx.producer(workspace_type="items", toolsets=[pager, pipe])
         def fetch_items():
             return [{"x": 1}]
 

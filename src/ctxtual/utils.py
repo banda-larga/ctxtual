@@ -2,7 +2,7 @@
 Built-in utility ToolSets.
 
 These cover the most common patterns when an agent needs to consume a
-workspace of list-type data.  Import them and pass to ``@forge.producer``
+workspace of list-type data.  Import them and pass to ``@ctx.producer``
 instead of writing boilerplate every time.
 
 Available factories
@@ -17,26 +17,26 @@ Available factories
 
 Usage::
 
-    from ctxtual import Forge, MemoryStore
+    from ctxtual import Ctx, MemoryStore
     from ctxtual.utils import paginator, text_search, filter_set, pipeline
 
-    forge = Forge(store=MemoryStore())
+    ctx = Ctx(store=MemoryStore())
 
     # Simple — name is inferred from workspace_type:
-    @forge.producer(workspace_type="papers", toolsets=[
-        paginator(forge),
-        text_search(forge, fields=["title", "abstract"]),
-        filter_set(forge),
-        pipeline(forge),
+    @ctx.producer(workspace_type="papers", toolsets=[
+        paginator(ctx),
+        text_search(ctx, fields=["title", "abstract"]),
+        filter_set(ctx),
+        pipeline(ctx),
     ])
     def fetch_papers(query: str):
         ...
 
     # Explicit — name is passed directly (still works):
-    pager = paginator(forge, "papers")
-    search = text_search(forge, "papers", fields=["title"])
+    pager = paginator(ctx, "papers")
+    search = text_search(ctx, "papers", fields=["title"])
 
-    @forge.producer(workspace_type="papers", toolsets=[pager, search])
+    @ctx.producer(workspace_type="papers", toolsets=[pager, search])
     def fetch_papers_v2(query: str):
         ...
 """
@@ -46,7 +46,7 @@ import json
 import math
 from typing import Any
 
-from ctxtual.forge import Forge, _infer_item_schema
+from ctxtual.ctx import Ctx, _infer_item_schema
 from ctxtual.pipeline import PipelineEngine, PipelineError, compute_aggregates
 from ctxtual.toolset import ToolSet, ToolSpec
 from ctxtual.types import WorkspaceMeta, WorkspaceRef
@@ -54,12 +54,12 @@ from ctxtual.types import WorkspaceMeta, WorkspaceRef
 # paginator: page through list-type workspaces
 
 
-def paginator(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
+def paginator(ctx: Ctx, name: str | None = None) -> ToolSet | ToolSpec:
     """
     Create a :class:`ToolSet` with pagination tools for list-type workspace data.
 
     If *name* is omitted, returns a :class:`ToolSpec` that is materialized
-    automatically when passed to ``@forge.producer``.
+    automatically when passed to ``@ctx.producer``.
 
     Tools:
 
@@ -69,8 +69,8 @@ def paginator(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
     - ``get_slice(workspace_id, start, end)`` — arbitrary slice
     """
     if name is None:
-        return ToolSpec(paginator, forge)
-    ts = forge.toolset(name)
+        return ToolSpec(paginator, ctx)
+    ts = ctx.toolset(name)
     ts.data_shape = "list"
 
     @ts.tool(
@@ -155,7 +155,7 @@ def paginator(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
 
 
 def text_search(
-    forge: Forge,
+    ctx: Ctx,
     name: str | None = None,
     *,
     fields: list[str] | None = None,
@@ -164,7 +164,7 @@ def text_search(
     Create a :class:`ToolSet` with text-search tools for list-type workspace data.
 
     If *name* is omitted, returns a :class:`ToolSpec` that is materialized
-    automatically when passed to ``@forge.producer``.
+    automatically when passed to ``@ctx.producer``.
 
     Args:
         fields: If provided, search is limited to these dict keys.
@@ -176,8 +176,8 @@ def text_search(
     - ``field_values(workspace_id, field, max_values)`` — distinct field values
     """
     if name is None:
-        return ToolSpec(text_search, forge, fields=fields)
-    ts = forge.toolset(name)
+        return ToolSpec(text_search, ctx, fields=fields)
+    ts = ctx.toolset(name)
     ts.data_shape = "list"
     _fields = fields
 
@@ -237,12 +237,12 @@ def text_search(
 # filter_set — structured filtering on dict-list workspaces
 
 
-def filter_set(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
+def filter_set(ctx: Ctx, name: str | None = None) -> ToolSet | ToolSpec:
     """
     Create a :class:`ToolSet` with structured filtering and sorting tools.
 
     If *name* is omitted, returns a :class:`ToolSpec` that is materialized
-    automatically when passed to ``@forge.producer``.
+    automatically when passed to ``@ctx.producer``.
 
     Tools:
 
@@ -253,8 +253,8 @@ def filter_set(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
     ``contains``, ``startswith``.
     """
     if name is None:
-        return ToolSpec(filter_set, forge)
-    ts = forge.toolset(name)
+        return ToolSpec(filter_set, ctx)
+    ts = ctx.toolset(name)
     ts.data_shape = "list"
 
     @ts.tool(name=f"{name}_filter_by")
@@ -306,12 +306,12 @@ def filter_set(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
 # kv_reader — for single-item / dict workspaces (non-list payloads)
 
 
-def kv_reader(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
+def kv_reader(ctx: Ctx, name: str | None = None) -> ToolSet | ToolSpec:
     """
     Create a :class:`ToolSet` for dict-type workspaces (single JSON document).
 
     If *name* is omitted, returns a :class:`ToolSpec` that is materialized
-    automatically when passed to ``@forge.producer``.
+    automatically when passed to ``@ctx.producer``.
 
     Tools:
 
@@ -319,8 +319,8 @@ def kv_reader(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
     - ``get_value(workspace_id, key)`` — value at key
     """
     if name is None:
-        return ToolSpec(kv_reader, forge)
-    ts = forge.toolset(name)
+        return ToolSpec(kv_reader, ctx)
+    ts = ctx.toolset(name)
     ts.data_shape = "dict"
 
     @ts.tool(
@@ -373,12 +373,12 @@ def kv_reader(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
 # pipeline: declarative data pipelines (compound operations in one call)
 
 
-def pipeline(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
+def pipeline(ctx: Ctx, name: str | None = None) -> ToolSet | ToolSpec:
     """
     Create a :class:`ToolSet` with pipeline tools for compound data operations.
 
     If *name* is omitted, returns a :class:`ToolSpec` that is materialized
-    automatically when passed to ``@forge.producer``.
+    automatically when passed to ``@ctx.producer``.
 
     This eliminates multi-round-trip patterns.  Instead of the LLM calling
     search → filter → sort → limit (4 tool calls, 4 round-trips), it
@@ -391,8 +391,8 @@ def pipeline(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
     - ``aggregate(workspace_id, group_by, metrics)`` — group-by aggregation
     """
     if name is None:
-        return ToolSpec(pipeline, forge)
-    ts = forge.toolset(name)
+        return ToolSpec(pipeline, ctx)
+    ts = ctx.toolset(name)
     ts.data_shape = "list"
     engine = PipelineEngine()
 
@@ -629,12 +629,14 @@ def pipeline(forge: Forge, name: str | None = None) -> ToolSet | ToolSpec:
 # text_content — tools for navigating raw string/text data
 
 
-def text_content(forge: Forge, name: str | None = None, *, chars_per_page: int = 3000) -> ToolSet | ToolSpec:
+def text_content(
+    ctx: Ctx, name: str | None = None, *, chars_per_page: int = 3000
+) -> ToolSet | ToolSpec:
     """
     Create a :class:`ToolSet` with tools for navigating string/text workspaces.
 
     If *name* is omitted, returns a :class:`ToolSpec` that is materialized
-    automatically when passed to ``@forge.producer``.
+    automatically when passed to ``@ctx.producer``.
 
     Use this for producers that return raw text — documents, webpages, PDFs,
     logs, source code, etc.  Unlike ``paginator`` (which expects ``list``),
@@ -650,13 +652,13 @@ def text_content(forge: Forge, name: str | None = None, *, chars_per_page: int =
     - ``get_length(workspace_id)`` — character and word count
 
     Args:
-        forge: The Forge instance.
+        ctx: The Ctx instance.
         name:  Workspace type name (e.g. ``"doc"``).  Optional.
         chars_per_page: Default characters per page for ``read_page``.
     """
     if name is None:
-        return ToolSpec(text_content, forge, chars_per_page=chars_per_page)
-    ts = forge.toolset(name)
+        return ToolSpec(text_content, ctx, chars_per_page=chars_per_page)
+    ts = ctx.toolset(name)
     ts.data_shape = "scalar"
 
     @ts.tool(

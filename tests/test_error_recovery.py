@@ -4,7 +4,7 @@ Validates that error responses include contextual hints, available
 workspaces, and suggested next actions.
 """
 
-from ctxtual import Forge, MemoryStore
+from ctxtual import Ctx, MemoryStore
 from ctxtual.exceptions import (
     WorkspaceExpiredError,
     WorkspaceNotFoundError,
@@ -67,16 +67,16 @@ class TestExceptionLLMDicts:
 
 class TestDispatchErrorRecovery:
     def test_unknown_tool_returns_suggestions(self):
-        forge = Forge(store=MemoryStore())
-        pager = paginator(forge, "docs")
+        ctx = Ctx(store=MemoryStore())
+        pager = paginator(ctx, "docs")
 
-        @forge.producer(workspace_type="docs", toolsets=[pager])
+        @ctx.producer(workspace_type="docs", toolsets=[pager])
         def load() -> list:
             return [{"title": "Doc 1"}]
 
         load()
 
-        result = forge.dispatch_tool_call("nonexistent_tool", {})
+        result = ctx.dispatch_tool_call("nonexistent_tool", {})
         assert "error" in result
         assert "nonexistent_tool" in result["error"]
         assert "available_tools" in result
@@ -84,16 +84,16 @@ class TestDispatchErrorRecovery:
         assert "suggested_action" in result
 
     def test_workspace_not_found_via_dispatch(self):
-        forge = Forge(store=MemoryStore())
-        pager = paginator(forge, "docs")
+        ctx = Ctx(store=MemoryStore())
+        pager = paginator(ctx, "docs")
 
-        @forge.producer(workspace_type="docs", toolsets=[pager])
+        @ctx.producer(workspace_type="docs", toolsets=[pager])
         def load() -> list:
             return [{"title": "Doc 1"}]
 
         load()
 
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "docs_paginate", {"workspace_id": "ws_nonexistent", "page": 0}
         )
         assert "error" in result
@@ -101,15 +101,15 @@ class TestDispatchErrorRecovery:
         assert "suggested_action" in result
 
     def test_workspace_type_mismatch_via_dispatch(self):
-        forge = Forge(store=MemoryStore())
-        papers_pager = paginator(forge, "papers")
-        employees_pager = paginator(forge, "employees")
+        ctx = Ctx(store=MemoryStore())
+        papers_pager = paginator(ctx, "papers")
+        employees_pager = paginator(ctx, "employees")
 
-        @forge.producer(workspace_type="papers", toolsets=[papers_pager])
+        @ctx.producer(workspace_type="papers", toolsets=[papers_pager])
         def load_papers() -> list:
             return [{"title": "Paper 1"}]
 
-        @forge.producer(workspace_type="employees", toolsets=[employees_pager])
+        @ctx.producer(workspace_type="employees", toolsets=[employees_pager])
         def load_employees() -> list:
             return [{"name": "Alice"}]
 
@@ -117,7 +117,7 @@ class TestDispatchErrorRecovery:
         load_employees()
 
         # Use a papers workspace_id with the employees tool
-        result = forge.dispatch_tool_call(
+        result = ctx.dispatch_tool_call(
             "employees_paginate",
             {"workspace_id": papers_ref["workspace_id"], "page": 0},
         )
@@ -132,11 +132,11 @@ class TestDispatchErrorRecovery:
 
 class TestUtilsErrorMessages:
     def test_get_item_out_of_range(self):
-        forge = Forge(store=MemoryStore())
-        pager = paginator(forge, "docs")
+        ctx = Ctx(store=MemoryStore())
+        pager = paginator(ctx, "docs")
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="docs", item_count=3)
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_1", [{"a": 1}, {"a": 2}, {"a": 3}])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_1", [{"a": 1}, {"a": 2}, {"a": 3}])
 
         result = pager.tools["docs_get_item"]("ws_1", index=99)
         assert "error" in result
@@ -145,13 +145,13 @@ class TestUtilsErrorMessages:
         assert "docs_paginate" in result["suggested_action"]
 
     def test_kv_missing_key(self):
-        forge = Forge(store=MemoryStore())
-        kv = kv_reader(forge, "config")
+        ctx = Ctx(store=MemoryStore())
+        kv = kv_reader(ctx, "config")
         meta = WorkspaceMeta(
             workspace_id="ws_cfg", workspace_type="config", item_count=2
         )
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_cfg", {"host": "localhost", "port": 5432})
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_cfg", {"host": "localhost", "port": 5432})
 
         result = kv.tools["config_get_value"]("ws_cfg", key="missing_key")
         assert "error" in result
@@ -162,13 +162,13 @@ class TestUtilsErrorMessages:
         assert "suggested_action" in result
 
     def test_kv_non_dict_workspace(self):
-        forge = Forge(store=MemoryStore())
-        kv = kv_reader(forge, "data")
+        ctx = Ctx(store=MemoryStore())
+        kv = kv_reader(ctx, "data")
         meta = WorkspaceMeta(
             workspace_id="ws_list", workspace_type="data", item_count=3
         )
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_list", [1, 2, 3])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_list", [1, 2, 3])
 
         result = kv.tools["data_get_value"]("ws_list", key="anything")
         assert "error" in result

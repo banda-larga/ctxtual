@@ -1,7 +1,7 @@
 """
 LangChain / LangGraph integration for ctx.
 
-Wraps all forge tools (producers + consumers) as LangChain
+Wraps all ctx tools (producers + consumers) as LangChain
 :class:`~langchain_core.tools.StructuredTool` objects that can be passed
 directly to agents, chains, or graphs.
 
@@ -9,35 +9,31 @@ Requires ``langchain-core`` (``pip install langchain-core``).
 
 Typical usage::
 
-    from ctxtual import Forge, MemoryStore
+    from ctxtual import Ctx, MemoryStore
     from ctxtual.integrations.langchain import to_langchain_tools
 
-    forge = Forge(store=MemoryStore())
+    ctx = Ctx(store=MemoryStore())
     # ... register producers and toolsets ...
 
-    tools = to_langchain_tools(forge)
+    tools = to_langchain_tools(ctx)
     # Pass `tools` to any LangChain agent/graph
 """
-
-from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ctxtual.forge import Forge
+    from ctxtual.ctx import Ctx
 
 
-def to_langchain_tools(
-    forge: Forge, *, workspace_id: str | None = None
-) -> list[Any]:
+def to_langchain_tools(ctx: "Ctx", *, workspace_id: str | None = None) -> list[Any]:
     """
-    Wrap all forge tools as LangChain ``StructuredTool`` objects.
+    Wrap all ctx tools as LangChain ``StructuredTool`` objects.
 
-    Each tool dispatches through ``forge.dispatch_tool_call()`` so workspace
+    Each tool dispatches through ``ctx.dispatch_tool_call()`` so workspace
     validation, type checking, and safe error handling all work as expected.
 
     Args:
-        forge:        The :class:`~ctx.Forge` instance.
+        ctx:        The :class:`~ctx.Ctx` instance.
         workspace_id: Optional workspace ID to scope consumer tools to.
 
     Returns:
@@ -62,7 +58,7 @@ def to_langchain_tools(
             "Install it with: pip install pydantic"
         ) from None
 
-    schemas = forge.get_tools(workspace_id=workspace_id)
+    schemas = ctx.get_tools(workspace_id=workspace_id)
     tools: list[StructuredTool] = []
 
     for schema in schemas:
@@ -78,7 +74,7 @@ def to_langchain_tools(
         # Closure captures tool_name correctly
         def _make_fn(name: str, desc: str):  # noqa: E301
             def fn(**kwargs: Any) -> Any:
-                return forge.dispatch_tool_call(name, kwargs)
+                return ctx.dispatch_tool_call(name, kwargs)
 
             fn.__name__ = name
             fn.__doc__ = desc

@@ -21,27 +21,27 @@ Run:
 Note: If no API key is set, runs in simulation mode.
 """
 
-import json
 import os
 
-from ctxtual import Forge, MemoryStore
-from ctxtual.utils import paginator, text_search, kv_reader
+from ctxtual import Ctx, MemoryStore
+from ctxtual.utils import kv_reader, paginator, text_search
 
-# ── Setup ────────────────────────────────────────────────────────────────
+# Setup
 
-forge = Forge(store=MemoryStore())
+ctx = Ctx(store=MemoryStore())
 
 # For file changes (list of dicts)
-files_pager  = paginator(forge, "pr_files")
-files_search = text_search(forge, "pr_files", fields=["filename", "patch"])
+files_pager = paginator(ctx, "pr_files")
+files_search = text_search(ctx, "pr_files", fields=["filename", "patch"])
 
 # For PR metadata (single dict)
-meta_kv = kv_reader(forge, "pr_meta")
+meta_kv = kv_reader(ctx, "pr_meta")
 
 
-# ── Producers ────────────────────────────────────────────────────────────
+# Producers
 
-@forge.producer(
+
+@ctx.producer(
     workspace_type="pr_files",
     toolsets=[files_pager, files_search],
     key="pr_{repo}_{number}_files",
@@ -61,9 +61,9 @@ def load_pr_files(repo: str, number: int) -> list[dict]:
             "additions": 45,
             "deletions": 12,
             "patch": "@@ -10,6 +10,12 @@\n+def verify_token(token: str) -> dict:\n"
-                     "+    \"\"\"Verify JWT token and return claims.\"\"\"\n"
-                     "+    try:\n+        return jwt.decode(token, SECRET_KEY, algorithms=['HS256'])\n"
-                     "+    except jwt.ExpiredSignatureError:\n+        raise AuthError('Token expired')\n",
+            '+    """Verify JWT token and return claims."""\n'
+            "+    try:\n+        return jwt.decode(token, SECRET_KEY, algorithms=['HS256'])\n"
+            "+    except jwt.ExpiredSignatureError:\n+        raise AuthError('Token expired')\n",
         },
         {
             "filename": "src/auth/__init__.py",
@@ -78,8 +78,8 @@ def load_pr_files(repo: str, number: int) -> list[dict]:
             "additions": 85,
             "deletions": 0,
             "patch": "@@ -0,0 +1,85 @@\n+import pytest\n+from src.auth.jwt import verify_token, create_token\n"
-                     "+\n+def test_create_and_verify():\n+    token = create_token({'user_id': 1})\n"
-                     "+    claims = verify_token(token)\n+    assert claims['user_id'] == 1\n",
+            "+\n+def test_create_and_verify():\n+    token = create_token({'user_id': 1})\n"
+            "+    claims = verify_token(token)\n+    assert claims['user_id'] == 1\n",
         },
         {
             "filename": "src/middleware/auth_middleware.py",
@@ -87,10 +87,10 @@ def load_pr_files(repo: str, number: int) -> list[dict]:
             "additions": 15,
             "deletions": 8,
             "patch": "@@ -5,8 +5,15 @@\n-def auth_required(f):\n-    # Old decorator\n"
-                     "+def auth_required(f):\n+    \"\"\"Decorator that validates JWT in Authorization header.\"\"\"\n"
-                     "+    @wraps(f)\n+    def wrapper(*args, **kwargs):\n"
-                     "+        token = request.headers.get('Authorization', '').replace('Bearer ', '')\n"
-                     "+        if not token:\n+            return jsonify({'error': 'Missing token'}), 401\n",
+            '+def auth_required(f):\n+    """Decorator that validates JWT in Authorization header."""\n'
+            "+    @wraps(f)\n+    def wrapper(*args, **kwargs):\n"
+            "+        token = request.headers.get('Authorization', '').replace('Bearer ', '')\n"
+            "+        if not token:\n+            return jsonify({'error': 'Missing token'}), 401\n",
         },
         {
             "filename": "requirements.txt",
@@ -102,7 +102,7 @@ def load_pr_files(repo: str, number: int) -> list[dict]:
     ]
 
 
-@forge.producer(
+@ctx.producer(
     workspace_type="pr_meta",
     toolsets=[meta_kv],
     key="pr_{repo}_{number}_meta",
@@ -118,10 +118,10 @@ def load_pr_metadata(repo: str, number: int) -> dict:
     return {
         "title": "feat: Add JWT authentication",
         "description": "Implements JWT-based auth with token creation, verification, "
-                       "and middleware integration. Adds PyJWT dependency.\n\n"
-                       "## Changes\n- New `verify_token` and `create_token` in auth/jwt.py\n"
-                       "- Auth middleware now validates JWT from Authorization header\n"
-                       "- Full test coverage for token lifecycle",
+        "and middleware integration. Adds PyJWT dependency.\n\n"
+        "## Changes\n- New `verify_token` and `create_token` in auth/jwt.py\n"
+        "- Auth middleware now validates JWT from Authorization header\n"
+        "- Full test coverage for token lifecycle",
         "author": "alice",
         "base_branch": "main",
         "head_branch": "feat/jwt-auth",
@@ -137,7 +137,8 @@ def load_pr_metadata(repo: str, number: int) -> dict:
     }
 
 
-# ── Simulation ───────────────────────────────────────────────────────────
+# Simulation
+
 
 def run_simulation():
     from ctxtual.integrations.anthropic import to_anthropic_tools
@@ -147,7 +148,7 @@ def run_simulation():
     print("=" * 70)
 
     # Show available tools in Anthropic format
-    tools = to_anthropic_tools(forge)
+    tools = to_anthropic_tools(ctx)
     print(f"\n[Setup] {len(tools)} tools registered (Anthropic format):")
     for t in tools:
         schema = t["input_schema"]
@@ -156,56 +157,62 @@ def run_simulation():
 
     # Step 1: Load PR metadata
     print(f"\n[Turn 1] Load PR metadata")
-    meta_ref = forge.dispatch_tool_call(
+    meta_ref = ctx.dispatch_tool_call(
         "load_pr_metadata", {"repo": "acme/backend", "number": 42}
     )
-    print(f"  → Workspace: {meta_ref['workspace_id']} (shape: {meta_ref['data_shape']})")
+    print(
+        f"  → Workspace: {meta_ref['workspace_id']} (shape: {meta_ref['data_shape']})"
+    )
     ws_meta = meta_ref["workspace_id"]
 
     # Step 2: Load PR files
     print(f"\n[Turn 2] Load PR files")
-    files_ref = forge.dispatch_tool_call(
+    files_ref = ctx.dispatch_tool_call(
         "load_pr_files", {"repo": "acme/backend", "number": 42}
     )
-    print(f"  → Workspace: {files_ref['workspace_id']} ({files_ref['item_count']} files)")
+    print(
+        f"  → Workspace: {files_ref['workspace_id']} ({files_ref['item_count']} files)"
+    )
     ws_files = files_ref["workspace_id"]
 
     # Step 3: Read PR title and description
     print(f"\n[Turn 3] Read PR description")
-    result = forge.dispatch_tool_call(
-        "pr_meta_get_keys", {"workspace_id": ws_meta}
-    )
+    result = ctx.dispatch_tool_call("pr_meta_get_keys", {"workspace_id": ws_meta})
     keys = result["result"]  # unwrap hint envelope
     print(f"  Keys: {keys}")
 
-    title = forge.dispatch_tool_call(
+    title = ctx.dispatch_tool_call(
         "pr_meta_get_value", {"workspace_id": ws_meta, "key": "title"}
     )
     print(f"  Title: {title}")
 
-    labels = forge.dispatch_tool_call(
+    labels = ctx.dispatch_tool_call(
         "pr_meta_get_value", {"workspace_id": ws_meta, "key": "labels"}
     )
     print(f"  Labels: {labels}")
 
-    stats = forge.dispatch_tool_call(
+    stats = ctx.dispatch_tool_call(
         "pr_meta_get_value", {"workspace_id": ws_meta, "key": "stats"}
     )
-    print(f"  Stats: +{stats['total_additions']}/-{stats['total_deletions']} "
-          f"across {stats['files_changed']} files")
+    print(
+        f"  Stats: +{stats['total_additions']}/-{stats['total_deletions']} "
+        f"across {stats['files_changed']} files"
+    )
 
     # Step 4: Browse changed files
     print(f"\n[Turn 4] Browse files")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "pr_files_paginate", {"workspace_id": ws_files, "page": 0, "size": 10}
     )
     data = result["result"]
     for f in data["items"]:
-        print(f"  {f['status']:>10} | +{f['additions']:<3} -{f['deletions']:<3} | {f['filename']}")
+        print(
+            f"  {f['status']:>10} | +{f['additions']:<3} -{f['deletions']:<3} | {f['filename']}"
+        )
 
     # Step 5: Search for security-relevant patterns
     print(f"\n[Turn 5] Search for 'secret' in patches")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "pr_files_search",
         {"workspace_id": ws_files, "query": "SECRET_KEY", "max_results": 5},
     )
@@ -215,7 +222,7 @@ def run_simulation():
 
     # Step 6: Read specific file detail
     print(f"\n[Turn 6] Read test file details")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "pr_files_get_item", {"workspace_id": ws_files, "index": 2}
     )
     print(f"  {result['filename']} ({result['status']}, +{result['additions']} lines)")
@@ -233,10 +240,11 @@ def run_simulation():
 def run_with_anthropic():
     """Full agent loop using the Anthropic SDK."""
     import anthropic
+
     from ctxtual.integrations.anthropic import (
-        to_anthropic_tools,
-        has_tool_use,
         handle_tool_use,
+        has_tool_use,
+        to_anthropic_tools,
     )
 
     client = anthropic.Anthropic()
@@ -244,7 +252,7 @@ def run_with_anthropic():
         {
             "role": "user",
             "content": "Review PR #42 in acme/backend. Load the metadata and files, "
-                       "check for security issues, and provide a thorough review.",
+            "check for security issues, and provide a thorough review.",
         },
     ]
 
@@ -255,7 +263,7 @@ def run_with_anthropic():
     )
 
     for turn in range(15):
-        tools = to_anthropic_tools(forge)
+        tools = to_anthropic_tools(ctx)
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
@@ -266,13 +274,11 @@ def run_with_anthropic():
 
         if has_tool_use(response):
             messages.append({"role": "assistant", "content": response.content})
-            tool_results = handle_tool_use(forge, response)
+            tool_results = handle_tool_use(ctx, response)
             messages.append({"role": "user", "content": tool_results})
             print(f"[Turn {turn + 1}] {len(tool_results)} tool call(s)")
         else:
-            text = "".join(
-                b.text for b in response.content if hasattr(b, "text")
-            )
+            text = "".join(b.text for b in response.content if hasattr(b, "text"))
             print(f"\n{'=' * 70}")
             print("CODE REVIEW:")
             print("=" * 70)

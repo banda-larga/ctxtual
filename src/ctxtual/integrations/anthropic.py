@@ -8,17 +8,17 @@ response objects **and** raw dicts — no ``anthropic`` package import required.
 Typical usage::
 
     from anthropic import Anthropic
-    from ctxtual import Forge, MemoryStore
+    from ctxtual import Ctx, MemoryStore
     from ctxtual.integrations.anthropic import (
         to_anthropic_tools,
         handle_tool_use,
         has_tool_use,
     )
 
-    forge = Forge(store=MemoryStore())
+    ctx = Ctx(store=MemoryStore())
     client = Anthropic()
 
-    tools = to_anthropic_tools(forge)
+    tools = to_anthropic_tools(ctx)
     messages = [{"role": "user", "content": "Search for papers on AI"}]
 
     while True:
@@ -29,29 +29,27 @@ Typical usage::
             break
         messages.append({"role": "assistant", "content": response.content})
         messages.append(
-            {"role": "user", "content": handle_tool_use(forge, response)}
+            {"role": "user", "content": handle_tool_use(ctx, response)}
         )
 """
-
-from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ctxtual.forge import Forge
+    from ctxtual.ctx import Ctx
 
 
 def to_anthropic_tools(
-    forge: Forge, *, workspace_id: str | None = None
+    ctx: "Ctx", *, workspace_id: str | None = None
 ) -> list[dict[str, Any]]:
     """
-    Export all forge tools in Anthropic tool definition format.
+    Export all ctx tools in Anthropic tool definition format.
 
     Anthropic uses a flat structure with ``input_schema`` instead of
     OpenAI's nested ``function.parameters``.
     """
-    openai_tools = forge.get_tools(workspace_id=workspace_id)
+    openai_tools = ctx.get_tools(workspace_id=workspace_id)
     return [
         {
             "name": t["function"]["name"],
@@ -78,15 +76,15 @@ def has_tool_use(response: Any) -> bool:
 
 
 def handle_tool_use(
-    forge: Forge,
+    ctx: "Ctx",
     response: Any,
 ) -> list[dict[str, Any]]:
     """
-    Dispatch every ``tool_use`` block in *response* through the forge and
+    Dispatch every ``tool_use`` block in *response* through the ctx and
     return ``tool_result`` content blocks for the next user message.
 
     Args:
-        forge:    The :class:`~ctx.Forge` instance.
+        ctx:    The :class:`~ctx.Ctx` instance.
         response: An Anthropic ``Message`` (SDK object or dict).
 
     Returns:
@@ -103,7 +101,7 @@ def handle_tool_use(
             input_data = json.loads(input_data)
 
         try:
-            result = forge.dispatch_tool_call(tu["name"], input_data)
+            result = ctx.dispatch_tool_call(tu["name"], input_data)
             content = (
                 json.dumps(result, ensure_ascii=False, default=str)
                 if not isinstance(result, str)
@@ -112,10 +110,12 @@ def handle_tool_use(
             # Detect error dicts returned by dispatch_tool_call
             is_error = isinstance(result, dict) and "error" in result
         except Exception as exc:
-            content = json.dumps({
-                "error": f"{type(exc).__name__}: {exc}",
-                "suggested_action": "Check the tool name and parameters.",
-            })
+            content = json.dumps(
+                {
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "suggested_action": "Check the tool name and parameters.",
+                }
+            )
             is_error = True
 
         results.append(
@@ -149,9 +149,7 @@ def _extract_tool_use(response: Any) -> list[dict[str, Any]]:
     for block in _get_content_blocks(response):
         # SDK object
         if hasattr(block, "type") and block.type == "tool_use":
-            tool_uses.append(
-                {"id": block.id, "name": block.name, "input": block.input}
-            )
+            tool_uses.append({"id": block.id, "name": block.name, "input": block.input})
         # Raw dict
         elif isinstance(block, dict) and block.get("type") == "tool_use":
             tool_uses.append(

@@ -14,18 +14,19 @@ Run:
 
 from typing import Any
 
-from ctxtual import Forge, MemoryStore
+from ctxtual import Ctx, MemoryStore
 from ctxtual.toolset import ToolSet
 from ctxtual.utils import paginator
 
-# ── Setup ────────────────────────────────────────────────────────────────
+# Setup
 
-forge = Forge(store=MemoryStore())
+ctx = Ctx(store=MemoryStore())
 
 
-# ── Custom ToolSet: Financial analytics ──────────────────────────────────
+# Custom ToolSet: Financial analytics
 
-def financial_analytics(forge: Forge) -> ToolSet:
+
+def financial_analytics(ctx: Ctx) -> ToolSet:
     """
     Domain-specific tools for financial transaction data.
 
@@ -33,7 +34,7 @@ def financial_analytics(forge: Forge) -> ToolSet:
     1. Warn at producer-time if the payload isn't a list
     2. Return a clear error at tool-time if the workspace has wrong shape
     """
-    ts = forge.toolset("transactions")
+    ts = ctx.toolset("transactions")
     ts.data_shape = "list"  # These tools expect list data
 
     @ts.tool(
@@ -89,10 +90,7 @@ def financial_analytics(forge: Forge) -> ToolSet:
 
         ranked = sorted(categories.items(), key=lambda x: x[1]["total"], reverse=True)
         return {
-            "categories": [
-                {"name": name, **stats}
-                for name, stats in ranked[:top_n]
-            ],
+            "categories": [{"name": name, **stats} for name, stats in ranked[:top_n]],
             "total_categories": len(categories),
         }
 
@@ -111,7 +109,7 @@ def financial_analytics(forge: Forge) -> ToolSet:
         amounts = [t["amount"] for t in items]
         mean = sum(amounts) / len(amounts)
         variance = sum((a - mean) ** 2 for a in amounts) / len(amounts)
-        std = variance ** 0.5
+        std = variance**0.5
 
         if std == 0:
             return {"anomalies": [], "threshold": std_threshold}
@@ -120,11 +118,13 @@ def financial_analytics(forge: Forge) -> ToolSet:
         for t in items:
             z_score = abs(t["amount"] - mean) / std
             if z_score > std_threshold:
-                flagged.append({
-                    **t,
-                    "z_score": round(z_score, 2),
-                    "deviation": "high" if t["amount"] > mean else "low",
-                })
+                flagged.append(
+                    {
+                        **t,
+                        "z_score": round(z_score, 2),
+                        "deviation": "high" if t["amount"] > mean else "low",
+                    }
+                )
 
         return {
             "anomalies": flagged,
@@ -135,9 +135,7 @@ def financial_analytics(forge: Forge) -> ToolSet:
         }
 
     @ts.tool(name="transactions_date_range")
-    def date_range(
-        workspace_id: str, start: str = "", end: str = ""
-    ) -> dict[str, Any]:
+    def date_range(workspace_id: str, start: str = "", end: str = "") -> dict[str, Any]:
         """Filter transactions to a specific date range.
 
         Args:
@@ -164,13 +162,13 @@ def financial_analytics(forge: Forge) -> ToolSet:
     return ts
 
 
-# ── Producer ─────────────────────────────────────────────────────────────
+# Producer
 
-analytics = financial_analytics(forge)
-pager = paginator(forge, "transactions")
+analytics = financial_analytics(ctx)
+pager = paginator(ctx, "transactions")
 
 
-@forge.producer(
+@ctx.producer(
     workspace_type="transactions",
     toolsets=[analytics, pager],
     key="txn_{account_id}_{period}",
@@ -183,20 +181,91 @@ def load_transactions(account_id: str, period: str = "2024-Q4") -> list[dict]:
         period: Time period to load.
     """
     return [
-        {"id": "TXN-001", "date": "2024-10-05", "amount": 150.00,  "category": "software",  "status": "completed", "vendor": "GitHub"},
-        {"id": "TXN-002", "date": "2024-10-12", "amount": 2500.00, "category": "cloud",     "status": "completed", "vendor": "AWS"},
-        {"id": "TXN-003", "date": "2024-10-15", "amount": 49.99,   "category": "software",  "status": "completed", "vendor": "Figma"},
-        {"id": "TXN-004", "date": "2024-11-01", "amount": 2500.00, "category": "cloud",     "status": "completed", "vendor": "AWS"},
-        {"id": "TXN-005", "date": "2024-11-03", "amount": 15000.00,"category": "consulting","status": "pending",   "vendor": "Acme Corp"},
-        {"id": "TXN-006", "date": "2024-11-10", "amount": 89.00,   "category": "tools",     "status": "completed", "vendor": "Linear"},
-        {"id": "TXN-007", "date": "2024-11-15", "amount": 350.00,  "category": "software",  "status": "completed", "vendor": "Datadog"},
-        {"id": "TXN-008", "date": "2024-12-01", "amount": 2500.00, "category": "cloud",     "status": "completed", "vendor": "AWS"},
-        {"id": "TXN-009", "date": "2024-12-05", "amount": 75000.00,"category": "hardware",  "status": "completed", "vendor": "Dell"},
-        {"id": "TXN-010", "date": "2024-12-10", "amount": 199.00,  "category": "software",  "status": "refunded",  "vendor": "JetBrains"},
+        {
+            "id": "TXN-001",
+            "date": "2024-10-05",
+            "amount": 150.00,
+            "category": "software",
+            "status": "completed",
+            "vendor": "GitHub",
+        },
+        {
+            "id": "TXN-002",
+            "date": "2024-10-12",
+            "amount": 2500.00,
+            "category": "cloud",
+            "status": "completed",
+            "vendor": "AWS",
+        },
+        {
+            "id": "TXN-003",
+            "date": "2024-10-15",
+            "amount": 49.99,
+            "category": "software",
+            "status": "completed",
+            "vendor": "Figma",
+        },
+        {
+            "id": "TXN-004",
+            "date": "2024-11-01",
+            "amount": 2500.00,
+            "category": "cloud",
+            "status": "completed",
+            "vendor": "AWS",
+        },
+        {
+            "id": "TXN-005",
+            "date": "2024-11-03",
+            "amount": 15000.00,
+            "category": "consulting",
+            "status": "pending",
+            "vendor": "Acme Corp",
+        },
+        {
+            "id": "TXN-006",
+            "date": "2024-11-10",
+            "amount": 89.00,
+            "category": "tools",
+            "status": "completed",
+            "vendor": "Linear",
+        },
+        {
+            "id": "TXN-007",
+            "date": "2024-11-15",
+            "amount": 350.00,
+            "category": "software",
+            "status": "completed",
+            "vendor": "Datadog",
+        },
+        {
+            "id": "TXN-008",
+            "date": "2024-12-01",
+            "amount": 2500.00,
+            "category": "cloud",
+            "status": "completed",
+            "vendor": "AWS",
+        },
+        {
+            "id": "TXN-009",
+            "date": "2024-12-05",
+            "amount": 75000.00,
+            "category": "hardware",
+            "status": "completed",
+            "vendor": "Dell",
+        },
+        {
+            "id": "TXN-010",
+            "date": "2024-12-10",
+            "amount": 199.00,
+            "category": "software",
+            "status": "refunded",
+            "vendor": "JetBrains",
+        },
     ]
 
 
-# ── Run ──────────────────────────────────────────────────────────────────
+# Run
+
 
 def run():
     print("=" * 70)
@@ -213,39 +282,43 @@ def run():
     # Summary stats
     print(f"\n{'─' * 50}")
     print("📊 Transaction Summary")
-    result = forge.dispatch_tool_call(
-        "transactions_summary", {"workspace_id": ws_id}
-    )
+    result = ctx.dispatch_tool_call("transactions_summary", {"workspace_id": ws_id})
     data = result["result"]  # unwrap hint envelope
     print(f"  Total: ${data['total_revenue']:,.2f} across {data['count']} transactions")
-    print(f"  Average: ${data['average']:,.2f} (min: ${data['min']:,.2f}, max: ${data['max']:,.2f})")
+    print(
+        f"  Average: ${data['average']:,.2f} (min: ${data['min']:,.2f}, max: ${data['max']:,.2f})"
+    )
     print(f"  By status: {data['by_status']}")
 
     # By category
     print(f"\n{'─' * 50}")
     print("📁 Revenue by Category")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "transactions_by_category", {"workspace_id": ws_id, "top_n": 5}
     )
     for cat in result["categories"]:
         bar = "█" * max(1, int(cat["total"] / 2000))
-        print(f"  {cat['name']:>12}: ${cat['total']:>10,.2f} ({cat['count']} txns) {bar}")
+        print(
+            f"  {cat['name']:>12}: ${cat['total']:>10,.2f} ({cat['count']} txns) {bar}"
+        )
 
     # Anomaly detection
     print(f"\n{'─' * 50}")
     print("⚠️  Anomaly Detection (>2σ)")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "transactions_anomalies", {"workspace_id": ws_id, "std_threshold": 2.0}
     )
     print(f"  Mean: ${result['mean']:,.2f}, Std: ${result['std']:,.2f}")
     print(f"  Flagged: {result['count']} anomalies")
     for a in result["anomalies"]:
-        print(f"    {a['id']} | ${a['amount']:>10,.2f} | z={a['z_score']} | {a['vendor']}")
+        print(
+            f"    {a['id']} | ${a['amount']:>10,.2f} | z={a['z_score']} | {a['vendor']}"
+        )
 
     # Date range filter
     print(f"\n{'─' * 50}")
     print("📅 November transactions only")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "transactions_date_range",
         {"workspace_id": ws_id, "start": "2024-11-01", "end": "2024-11-30"},
     )
@@ -256,7 +329,7 @@ def run():
     # Also works with built-in paginator
     print(f"\n{'─' * 50}")
     print("📃 Paginate (built-in + custom tools coexist)")
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "transactions_paginate", {"workspace_id": ws_id, "page": 0, "size": 3}
     )
     data = result["result"]
@@ -267,7 +340,7 @@ def run():
     # Show all registered tool schemas (what the LLM sees)
     print(f"\n{'─' * 50}")
     print("🔧 Tool schemas for LLM:")
-    schemas = forge.get_all_tool_schemas()
+    schemas = ctx.get_all_tool_schemas()
     for s in schemas:
         fn = s["function"]
         params = list(fn["parameters"]["properties"].keys())

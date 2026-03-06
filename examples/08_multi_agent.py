@@ -6,7 +6,7 @@ Scenario: A research team of specialized agents working together:
   2. **Analyst agent** — processes and enriches the data
   3. **Writer agent** — produces a final report
 
-Each agent has its own Forge consumer but they share the same store,
+Each agent has its own Ctx consumer but they share the same store,
 reading each other's workspaces. This is the pattern for CrewAI-style
 multi-agent systems where agents have different roles.
 
@@ -14,23 +14,23 @@ Run:
     uv run python examples/08_multi_agent.py
 """
 
-from ctxtual import Forge, MemoryStore, ConsumerContext
-from ctxtual.utils import paginator, text_search, kv_reader
+from ctxtual import ConsumerContext, Ctx, MemoryStore
+from ctxtual.utils import kv_reader, paginator, text_search
 
-# ── Shared infrastructure ────────────────────────────────────────────────
+# Shared infrastructure
 
 # All agents share one store — this is the collaboration backbone.
 # In production, use SQLiteStore for persistence across processes.
 store = MemoryStore()
-forge = Forge(store=store)
+ctx = Ctx(store=store)
 
-# ── Agent 1: Data Collector ──────────────────────────────────────────────
+# Agent 1: Data Collector
 
-collector_pager  = paginator(forge, "raw_data")
-collector_search = text_search(forge, "raw_data", fields=["source", "title", "content"])
+collector_pager = paginator(ctx, "raw_data")
+collector_search = text_search(ctx, "raw_data", fields=["source", "title", "content"])
 
 
-@forge.producer(
+@ctx.producer(
     workspace_type="raw_data",
     toolsets=[collector_pager, collector_search],
     key="research_{topic}",
@@ -48,8 +48,8 @@ def collect_research(topic: str) -> list[dict]:
             "source": "arxiv",
             "title": "Scaling Laws for Neural Language Models",
             "content": "We study empirical scaling laws for language model performance. "
-                       "Cross-entropy loss scales as a power-law with model size, "
-                       "dataset size, and compute budget.",
+            "Cross-entropy loss scales as a power-law with model size, "
+            "dataset size, and compute budget.",
             "year": 2020,
             "relevance": 0.95,
         },
@@ -57,8 +57,8 @@ def collect_research(topic: str) -> list[dict]:
             "source": "blog",
             "title": "The Bitter Lesson by Rich Sutton",
             "content": "The biggest lesson from 70 years of AI research is that "
-                       "general methods that leverage computation are ultimately "
-                       "the most effective by a large margin.",
+            "general methods that leverage computation are ultimately "
+            "the most effective by a large margin.",
             "year": 2019,
             "relevance": 0.88,
         },
@@ -66,8 +66,8 @@ def collect_research(topic: str) -> list[dict]:
             "source": "arxiv",
             "title": "Chinchilla: Training Compute-Optimal LLMs",
             "content": "Current large language models are significantly undertrained. "
-                       "Given a compute budget, the model size and training tokens "
-                       "should be scaled equally.",
+            "Given a compute budget, the model size and training tokens "
+            "should be scaled equally.",
             "year": 2022,
             "relevance": 0.92,
         },
@@ -75,7 +75,7 @@ def collect_research(topic: str) -> list[dict]:
             "source": "industry",
             "title": "GPT-4 Technical Report",
             "content": "GPT-4 is a large multimodal model that exhibits human-level "
-                       "performance on various professional benchmarks.",
+            "performance on various professional benchmarks.",
             "year": 2023,
             "relevance": 0.85,
         },
@@ -83,20 +83,20 @@ def collect_research(topic: str) -> list[dict]:
             "source": "arxiv",
             "title": "Emergent Abilities of Large Language Models",
             "content": "We discuss emergent abilities — abilities that are not present "
-                       "in smaller models but are present in larger models. This is "
-                       "a fundamental property of scaling.",
+            "in smaller models but are present in larger models. This is "
+            "a fundamental property of scaling.",
             "year": 2022,
             "relevance": 0.90,
         },
     ]
 
 
-# ── Agent 2: Analyst ─────────────────────────────────────────────────────
+# Agent 2: Analyst
 
-analysis_pager = paginator(forge, "analysis")
+analysis_pager = paginator(ctx, "analysis")
 
 
-@forge.consumer(
+@ctx.consumer(
     workspace_type="raw_data",
     produces="analysis",
     produces_toolsets=[analysis_pager],
@@ -138,12 +138,12 @@ def analyze_sources(
     )
 
 
-# ── Agent 3: Report Writer ──────────────────────────────────────────────
+# Agent 3: Report Writer
 
-report_kv = kv_reader(forge, "report")
+report_kv = kv_reader(ctx, "report")
 
 
-@forge.consumer(
+@ctx.consumer(
     workspace_type="analysis",
     produces="report",
     produces_toolsets=[report_kv],
@@ -185,11 +185,13 @@ def write_report(
 
     # Build timeline
     for item in sorted(items, key=lambda x: x["year"]):
-        report["timeline"].append({
-            "year": item["year"],
-            "title": item["title"],
-            "key_finding": item["key_finding"],
-        })
+        report["timeline"].append(
+            {
+                "year": item["year"],
+                "title": item["title"],
+                "key_finding": item["key_finding"],
+            }
+        )
 
     return forge_ctx.emit(
         report,
@@ -197,7 +199,8 @@ def write_report(
     )
 
 
-# ── Orchestration ────────────────────────────────────────────────────────
+# Orchestration
+
 
 def run_multi_agent():
     print("=" * 70)
@@ -222,14 +225,16 @@ def run_multi_agent():
 
     # Browse the analysis workspace
     ws_analysis = analysis_ref["workspace_id"]
-    result = forge.dispatch_tool_call(
+    result = ctx.dispatch_tool_call(
         "analysis_paginate", {"workspace_id": ws_analysis, "page": 0, "size": 10}
     )
     data = result["result"]
     print(f"\n  Analyzed sources (ranked):")
     for item in data["items"]:
-        print(f"    #{item['analysis_rank']} [{item['source']}] "
-              f"{item['title']} (relevance: {item['relevance']})")
+        print(
+            f"    #{item['analysis_rank']} [{item['source']}] "
+            f"{item['title']} (relevance: {item['relevance']})"
+        )
 
     # Agent 3: Write report
     print("\n📝 [Writer] Generating report...")
@@ -238,29 +243,27 @@ def run_multi_agent():
     ws_report = report_ref["workspace_id"]
 
     # Read the report (dict workspace → kv_reader)
-    keys = forge.dispatch_tool_call(
-        "report_get_keys", {"workspace_id": ws_report}
-    )
+    keys = ctx.dispatch_tool_call("report_get_keys", {"workspace_id": ws_report})
     print(f"\n  Report sections: {keys['result']}")
 
-    title = forge.dispatch_tool_call(
+    title = ctx.dispatch_tool_call(
         "report_get_value", {"workspace_id": ws_report, "key": "title"}
     )
     print(f"\n  📄 {title}")
 
-    summary = forge.dispatch_tool_call(
+    summary = ctx.dispatch_tool_call(
         "report_get_value", {"workspace_id": ws_report, "key": "summary"}
     )
     print(f"  {summary}")
 
-    findings = forge.dispatch_tool_call(
+    findings = ctx.dispatch_tool_call(
         "report_get_value", {"workspace_id": ws_report, "key": "key_findings"}
     )
     print(f"\n  Key Findings:")
     for f in findings:
         print(f"    • {f}")
 
-    timeline = forge.dispatch_tool_call(
+    timeline = ctx.dispatch_tool_call(
         "report_get_value", {"workspace_id": ws_report, "key": "timeline"}
     )
     print(f"\n  Timeline:")
@@ -270,13 +273,15 @@ def run_multi_agent():
     # Show the workspace lineage
     print(f"\n{'=' * 70}")
     print("WORKSPACE LINEAGE (all agents share one store):")
-    for ws_id in forge.list_workspaces():
-        meta = forge.workspace_meta(ws_id)
+    for ws_id in ctx.list_workspaces():
+        meta = ctx.workspace_meta(ws_id)
         agent = meta.extra.get("agent", "?")
         derived = meta.extra.get("derived_from", "—")
         print(f"  [{agent:>10}] {ws_id}")
-        print(f"             type={meta.workspace_type}, shape={meta.data_shape}, "
-              f"items={meta.item_count}, from={derived}")
+        print(
+            f"             type={meta.workspace_type}, shape={meta.data_shape}, "
+            f"items={meta.item_count}, from={derived}"
+        )
     print("=" * 70)
 
 

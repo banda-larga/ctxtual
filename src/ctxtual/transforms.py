@@ -1,7 +1,7 @@
 """
 Built-in transforms for ctx producers.
 
-Transforms are callables passed to ``@forge.producer(transform=...)`` that
+Transforms are callables passed to ``@ctx.producer(transform=...)`` that
 pre-process the raw return value before it's stored in the workspace.
 
 Available transforms
@@ -14,15 +14,13 @@ Usage::
 
     from ctxtual.transforms import chunk_text
 
-    @forge.producer(workspace_type="doc", toolsets=[pager, search, pipe],
+    @ctx.producer(workspace_type="doc", toolsets=[pager, search, pipe],
                     transform=chunk_text(chunk_size=1000, overlap=200))
     def read_pdf(path: str) -> str:
         return extract_text(path)
 
     # "long string..." → [{"chunk_index": 0, "text": "...", "char_offset": 0}, ...]
 """
-
-from __future__ import annotations
 
 import re
 from collections.abc import Callable
@@ -78,11 +76,13 @@ def chunk_text(
         offset = 0
         while offset < len(value):
             end = min(offset + chunk_size, len(value))
-            chunks.append({
-                "chunk_index": idx,
-                "text": value[offset:end],
-                "char_offset": offset,
-            })
+            chunks.append(
+                {
+                    "chunk_index": idx,
+                    "text": value[offset:end],
+                    "char_offset": offset,
+                }
+            )
             offset += step
             idx += 1
         return chunks
@@ -137,11 +137,13 @@ def split_sections(
                 actual_offset = value.find(part, offset)
                 if actual_offset == -1:
                     actual_offset = offset
-                sections.append({
-                    "section_index": idx,
-                    "text": text,
-                    "char_offset": actual_offset,
-                })
+                sections.append(
+                    {
+                        "section_index": idx,
+                        "text": text,
+                        "char_offset": actual_offset,
+                    }
+                )
                 idx += 1
             offset += len(part) + len(separator)
 
@@ -181,20 +183,29 @@ def split_markdown_sections() -> Callable[[Any], Any]:
             # No headers — return the whole text as one section
             text = value.strip()
             if text:
-                return [{"section_index": 0, "heading": "(document)", "level": 0,
-                         "text": text, "char_offset": 0}]
+                return [
+                    {
+                        "section_index": 0,
+                        "heading": "(document)",
+                        "level": 0,
+                        "text": text,
+                        "char_offset": 0,
+                    }
+                ]
             return []
 
         # Content before first header
         preamble = value[: matches[0].start()].strip()
         if preamble:
-            sections.append({
-                "section_index": 0,
-                "heading": "(preamble)",
-                "level": 0,
-                "text": preamble,
-                "char_offset": 0,
-            })
+            sections.append(
+                {
+                    "section_index": 0,
+                    "heading": "(preamble)",
+                    "level": 0,
+                    "text": preamble,
+                    "char_offset": 0,
+                }
+            )
 
         for i, m in enumerate(matches):
             level = len(m.group(1))
@@ -203,13 +214,15 @@ def split_markdown_sections() -> Callable[[Any], Any]:
             body_end = matches[i + 1].start() if i + 1 < len(matches) else len(value)
             text = value[body_start:body_end].strip()
 
-            sections.append({
-                "section_index": len(sections),
-                "heading": heading,
-                "level": level,
-                "text": text,
-                "char_offset": m.start(),
-            })
+            sections.append(
+                {
+                    "section_index": len(sections),
+                    "heading": heading,
+                    "level": level,
+                    "text": text,
+                    "char_offset": m.start(),
+                }
+            )
 
         return sections
 

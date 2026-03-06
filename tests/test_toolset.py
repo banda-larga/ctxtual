@@ -2,15 +2,15 @@
 
 import pytest
 
-from ctxtual import Forge
+from ctxtual import Ctx
 from ctxtual.exceptions import WorkspaceNotFoundError, WorkspaceTypeMismatchError
 from ctxtual.toolset import BoundToolSet, ToolSet
 from ctxtual.types import WorkspaceMeta
 
 
 class TestToolSetRegistration:
-    def test_register_tool(self, forge: Forge) -> None:
-        ts = forge.toolset("papers")
+    def test_register_tool(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("papers")
 
         @ts.tool
         def paginate(workspace_id: str, page: int = 0) -> list:
@@ -19,8 +19,8 @@ class TestToolSetRegistration:
         assert "paginate" in ts.tool_names
         assert ts.tools["paginate"] is paginate
 
-    def test_register_with_custom_name(self, forge: Forge) -> None:
-        ts = forge.toolset("papers")
+    def test_register_with_custom_name(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("papers")
 
         @ts.tool(name="custom_page")
         def paginate(workspace_id: str) -> list:
@@ -29,8 +29,8 @@ class TestToolSetRegistration:
         assert "custom_page" in ts.tool_names
         assert "paginate" not in ts.tool_names
 
-    def test_get_tool(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_get_tool(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
 
         @ts.tool
         def my_tool(workspace_id: str) -> str:
@@ -38,15 +38,15 @@ class TestToolSetRegistration:
 
         assert ts.get_tool("my_tool") is my_tool
 
-    def test_get_tool_missing(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_get_tool_missing(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
         with pytest.raises(KeyError, match="not_here"):
             ts.get_tool("not_here")
 
 
 class TestToolSetValidation:
-    def test_validates_workspace_exists(self, forge: Forge) -> None:
-        ts = forge.toolset("papers")
+    def test_validates_workspace_exists(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("papers")
 
         @ts.tool
         def read(workspace_id: str) -> list:
@@ -55,8 +55,8 @@ class TestToolSetValidation:
         with pytest.raises(WorkspaceNotFoundError):
             read("nonexistent_ws")
 
-    def test_validates_workspace_type(self, forge: Forge) -> None:
-        ts = forge.toolset("papers")  # expects type "papers"
+    def test_validates_workspace_type(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("papers")  # expects type "papers"
 
         @ts.tool
         def read(workspace_id: str) -> list:
@@ -64,13 +64,13 @@ class TestToolSetValidation:
 
         # Create workspace of a different type
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="employees")
-        forge.store.init_workspace(meta)
+        ctx.store.init_workspace(meta)
 
         with pytest.raises(WorkspaceTypeMismatchError):
             read("ws_1")
 
-    def test_skip_validation(self, forge: Forge) -> None:
-        ts = forge.toolset("papers")
+    def test_skip_validation(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("papers")
 
         @ts.tool(validate_workspace=False)
         def raw_read(workspace_id: str) -> str:
@@ -79,8 +79,8 @@ class TestToolSetValidation:
         # Should not raise even though workspace doesn't exist
         assert raw_read("anything") == "no validation"
 
-    def test_enforce_type_false(self, forge: Forge) -> None:
-        ts = forge.toolset("any_type", enforce_type=False)
+    def test_enforce_type_false(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("any_type", enforce_type=False)
 
         @ts.tool
         def read(workspace_id: str) -> list:
@@ -88,16 +88,16 @@ class TestToolSetValidation:
 
         # Create workspace of type "papers" — should not raise
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="papers")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_1", [1, 2, 3])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_1", [1, 2, 3])
 
         assert read("ws_1") == [1, 2, 3]
 
-    def test_tool_receives_all_args(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_tool_receives_all_args(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_1", list(range(100)))
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_1", list(range(100)))
 
         @ts.tool
         def paginate(workspace_id: str, page: int = 0, size: int = 10) -> list:
@@ -115,17 +115,17 @@ class TestToolSetStoreAccess:
         with pytest.raises(RuntimeError, match="not been attached"):
             _ = ts.store
 
-    def test_store_attached_via_forge(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
-        assert ts.store is forge.store
+    def test_store_attached_via_forge(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
+        assert ts.store is ctx.store
 
 
 class TestBoundToolSet:
-    def test_bind_pre_fills_workspace_id(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_bind_pre_fills_workspace_id(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_1", [10, 20, 30])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_1", [10, 20, 30])
 
         @ts.tool
         def get_all(workspace_id: str) -> list:
@@ -136,8 +136,8 @@ class TestBoundToolSet:
         assert bound.workspace_id == "ws_1"
         assert bound.get_all() == [10, 20, 30]
 
-    def test_bound_tool_names(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_bound_tool_names(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
 
         @ts.tool
         def tool_a(workspace_id: str) -> None:
@@ -150,8 +150,8 @@ class TestBoundToolSet:
         bound = ts.bind("ws_1")
         assert set(bound.tool_names) == {"tool_a", "tool_b"}
 
-    def test_bound_repr(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_bound_repr(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
         bound = ts.bind("ws_1")
         r = repr(bound)
         assert "BoundToolSet" in r
@@ -159,8 +159,8 @@ class TestBoundToolSet:
 
 
 class TestToolSetRepr:
-    def test_repr(self, forge: Forge) -> None:
-        ts = forge.toolset("papers")
+    def test_repr(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("papers")
 
         @ts.tool
         def paginate(workspace_id: str) -> list:
@@ -173,11 +173,11 @@ class TestToolSetRepr:
 
 
 class TestOutputHint:
-    def test_output_hint_on_dict_result(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_output_hint_on_dict_result(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_1", [1, 2, 3])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_1", [1, 2, 3])
 
         @ts.tool(
             output_hint="Call next_tool(workspace_id='{workspace_id}') to continue."
@@ -191,11 +191,11 @@ class TestOutputHint:
         assert "ws_1" in result["_hint"]
         assert "next_tool" in result["_hint"]
 
-    def test_output_hint_on_list_result(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_output_hint_on_list_result(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_1", ["a", "b"])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_1", ["a", "b"])
 
         @ts.tool(output_hint="Use get_value() to read each item.")
         def list_items(workspace_id: str) -> list:
@@ -206,10 +206,10 @@ class TestOutputHint:
         assert result["result"] == ["key1", "key2"]
         assert "get_value()" in result["_hint"]
 
-    def test_no_output_hint_by_default(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_no_output_hint_by_default(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
         meta = WorkspaceMeta(workspace_id="ws_1", workspace_type="data")
-        forge.store.init_workspace(meta)
+        ctx.store.init_workspace(meta)
 
         @ts.tool
         def plain_tool(workspace_id: str) -> dict:
@@ -219,11 +219,11 @@ class TestOutputHint:
         assert "_hint" not in result
         assert result == {"result": "ok"}
 
-    def test_output_hint_workspace_id_placeholder(self, forge: Forge) -> None:
-        ts = forge.toolset("data")
+    def test_output_hint_workspace_id_placeholder(self, ctx: Ctx) -> None:
+        ts = ctx.toolset("data")
         meta = WorkspaceMeta(workspace_id="ws_abc", workspace_type="data")
-        forge.store.init_workspace(meta)
-        forge.store.set_items("ws_abc", [])
+        ctx.store.init_workspace(meta)
+        ctx.store.set_items("ws_abc", [])
 
         @ts.tool(output_hint="page(workspace_id='{workspace_id}', page=1)")
         def tool_with_placeholder(workspace_id: str) -> dict:
@@ -239,11 +239,11 @@ class TestOutputHint:
 class TestToolSpec:
     """Test the deferred ToolSpec pattern (name-less factory calls)."""
 
-    def test_spec_materializes_on_producer(self, forge: Forge) -> None:
+    def test_spec_materializes_on_producer(self, ctx: Ctx) -> None:
         from ctxtual.utils import paginator, text_search
 
-        spec_pager = paginator(forge)
-        spec_search = text_search(forge, fields=["title"])
+        spec_pager = paginator(ctx)
+        spec_search = text_search(ctx, fields=["title"])
 
         # ToolSpecs, not ToolSets
         from ctxtual.toolset import ToolSpec
@@ -251,7 +251,7 @@ class TestToolSpec:
         assert isinstance(spec_pager, ToolSpec)
         assert isinstance(spec_search, ToolSpec)
 
-        @forge.producer(workspace_type="papers", toolsets=[spec_pager, spec_search])
+        @ctx.producer(workspace_type="papers", toolsets=[spec_pager, spec_search])
         def fetch(query: str) -> list:
             return [{"title": "ML Paper", "year": 2024}]
 
@@ -261,16 +261,16 @@ class TestToolSpec:
         assert "papers_paginate" in tools_str
         assert "papers_search" in tools_str
 
-    def test_spec_reuse_across_producers(self, forge: Forge) -> None:
+    def test_spec_reuse_across_producers(self, ctx: Ctx) -> None:
         from ctxtual.utils import paginator
 
-        spec = paginator(forge)
+        spec = paginator(ctx)
 
-        @forge.producer(workspace_type="papers", toolsets=[spec])
+        @ctx.producer(workspace_type="papers", toolsets=[spec])
         def fetch_papers() -> list:
             return [{"title": "Paper A"}]
 
-        @forge.producer(workspace_type="docs", toolsets=[spec])
+        @ctx.producer(workspace_type="docs", toolsets=[spec])
         def fetch_docs() -> list:
             return [{"title": "Doc B"}]
 
@@ -279,24 +279,24 @@ class TestToolSpec:
         assert "papers_paginate" in str(ref1["available_tools"])
         assert "docs_paginate" in str(ref2["available_tools"])
 
-    def test_spec_dispatch_tool_call(self, forge: Forge) -> None:
+    def test_spec_dispatch_tool_call(self, ctx: Ctx) -> None:
         from ctxtual.utils import paginator
 
-        @forge.producer(workspace_type="items", toolsets=[paginator(forge)])
+        @ctx.producer(workspace_type="items", toolsets=[paginator(ctx)])
         def load() -> list:
             return [{"x": 1}, {"x": 2}, {"x": 3}]
 
         ref = load()
-        result = forge.dispatch_tool_call("items_paginate", {"workspace_id": ref["workspace_id"]})
+        result = ctx.dispatch_tool_call("items_paginate", {"workspace_id": ref["workspace_id"]})
         assert result["result"]["total"] == 3
 
-    def test_explicit_name_still_works(self, forge: Forge) -> None:
+    def test_explicit_name_still_works(self, ctx: Ctx) -> None:
         from ctxtual.utils import paginator
 
-        pager = paginator(forge, "things")
+        pager = paginator(ctx, "things")
         assert isinstance(pager, ToolSet)
 
-        @forge.producer(workspace_type="things", toolsets=[pager])
+        @ctx.producer(workspace_type="things", toolsets=[pager])
         def fetch() -> list:
             return [1, 2]
 
@@ -307,8 +307,8 @@ class TestToolSpec:
         from ctxtual.utils import paginator
         from ctxtual.toolset import ToolSpec
 
-        forge = Forge()
-        spec = paginator(forge)
+        ctx = Ctx()
+        spec = paginator(ctx)
         r = repr(spec)
         assert "ToolSpec" in r
         assert "paginator" in r

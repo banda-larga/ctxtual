@@ -59,8 +59,6 @@ Metric specs: ``"count"``, ``"sum:field"``, ``"mean:field"``, ``"min:field"``,
 ``"max:field"``, ``"values:field"`` (unique values list).
 """
 
-from __future__ import annotations
-
 import math
 import random
 import re

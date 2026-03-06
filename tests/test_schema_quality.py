@@ -3,7 +3,7 @@
 import inspect
 from typing import Any, Literal, Optional, Union  # noqa: UP035
 
-from ctxtual import Forge, MemoryStore
+from ctxtual import Ctx, MemoryStore
 from ctxtual.toolset import (
     _build_param_description,
     _extract_param_descriptions,
@@ -261,8 +261,8 @@ class TestBuildParamDescription:
 class TestSchemaOutputQuality:
     def test_consumer_schema_has_meaningful_descriptions(self):
         """ToolSet schemas use docstring params, not just the param name."""
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("test")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("test")
 
         @ts.tool
         def search(workspace_id: str, query: str, limit: int = 10) -> list:
@@ -283,9 +283,9 @@ class TestSchemaOutputQuality:
         assert "Max results" in props["limit"]["description"]
 
     def test_producer_schema_has_meaningful_descriptions(self):
-        forge = Forge(store=MemoryStore())
+        ctx = Ctx(store=MemoryStore())
 
-        @forge.producer(workspace_type="data")
+        @ctx.producer(workspace_type="data")
         def fetch(query: str, top_k: int = 100) -> list:
             """Fetch data from the database.
 
@@ -295,7 +295,7 @@ class TestSchemaOutputQuality:
             """
             return []
 
-        schemas = forge.get_producer_schemas()
+        schemas = ctx.get_producer_schemas()
         props = schemas[0]["function"]["parameters"]["properties"]
 
         assert props["query"]["description"] == "SQL-like query string."
@@ -303,8 +303,8 @@ class TestSchemaOutputQuality:
 
     def test_well_known_params_get_good_descriptions(self):
         """Even without docstrings, well-known param names get good descriptions."""
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("test")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("test")
 
         @ts.tool
         def paginate(workspace_id: str, page: int = 0, size: int = 10) -> list:
@@ -320,8 +320,8 @@ class TestSchemaOutputQuality:
 
     def test_default_values_in_schema(self):
         """Default values appear in the JSON Schema."""
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("test")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("test")
 
         @ts.tool
         def search(workspace_id: str, page: int = 0, size: int = 10) -> list:
@@ -338,8 +338,8 @@ class TestSchemaOutputQuality:
 
     def test_complex_type_annotations(self):
         """Complex annotations produce richer schemas."""
-        forge = Forge(store=MemoryStore())
-        ts = forge.toolset("test")
+        ctx = Ctx(store=MemoryStore())
+        ts = ctx.toolset("test")
 
         @ts.tool
         def advanced(
@@ -365,8 +365,8 @@ class TestSchemaOutputQuality:
 
     def test_builtin_paginator_schema_quality(self):
         """Built-in paginator produces high-quality schemas."""
-        forge = Forge(store=MemoryStore())
-        pager = paginator(forge, "docs")
+        ctx = Ctx(store=MemoryStore())
+        pager = paginator(ctx, "docs")
         schemas = pager.to_tool_schemas()
 
         # Find the paginate tool schema
@@ -386,8 +386,8 @@ class TestSchemaOutputQuality:
 
     def test_builtin_filter_set_schema_quality(self):
         """Built-in filter_set has good operator description."""
-        forge = Forge(store=MemoryStore())
-        filt = filter_set(forge, "items")
+        ctx = Ctx(store=MemoryStore())
+        filt = filter_set(ctx, "items")
         schemas = filt.to_tool_schemas()
 
         filter_schema = next(
