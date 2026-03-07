@@ -91,7 +91,7 @@ class WorkspaceRef:
         construct queries (filter, sort, pipeline) without first paginating
         to discover the data structure.
         """
-        # Build actionable next-step instructions
+        # build actionable next-step instructions
         next_steps: list[str] = []
         tool_examples: list[str] = []
 
@@ -100,12 +100,12 @@ class WorkspaceRef:
             tool_examples.append(call_example)
             desc = self.tool_descriptions.get(tool_name, "")
             if desc:
-                next_steps.append(f"• {tool_name}: {desc}")
+                next_steps.append(f"{tool_name}: {desc}")
 
-        # Fallback if no descriptions were provided (backward compat)
+        # fallback if no descriptions were provided (backward compat)
         if not next_steps and self.available_tools:
             next_steps = [
-                f"• Call {t}(workspace_id='{self.workspace_id}') to explore."
+                f"Call {t}(workspace_id='{self.workspace_id}') to explore."
                 for t in self.available_tools
             ]
 
@@ -115,7 +115,7 @@ class WorkspaceRef:
             "workspace_type": self.workspace_type,
             "item_count": self.item_count,
             "message": (
-                f"✓ {self.item_count:,} item(s) stored in workspace "
+                f"{self.item_count:,} item(s) stored in workspace "
                 f"'{self.workspace_id}' (type: {self.workspace_type}). "
                 f"Use the tools below to explore the data."
             ),
@@ -125,7 +125,7 @@ class WorkspaceRef:
         if self.data_shape:
             result["data_shape"] = self.data_shape
 
-        # JSON Schema — tells the LLM field names AND types so it can
+        # JSON Schema, tells the LLM field names AND types so it can
         # construct filter/sort/pipeline queries immediately.
         if self.item_schema is not None:
             result["item_schema"] = self.item_schema

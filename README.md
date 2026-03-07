@@ -26,18 +26,18 @@ pip install ctxtual
   - [Architecture](#architecture)
   - [Core API](#core-api)
     - [Ctx](#ctx)
-    - [`@ctx.producer` — Store Data, Return a Map](#ctxproducer--store-data-return-a-map)
-    - [`@ctx.consumer` — Transform and Derive](#ctxconsumer--transform-and-derive)
-    - [`ctx.dispatch_tool_call()` — Single Entry Point](#ctxdispatch_tool_call--single-entry-point)
+    - [`@ctx.producer`: Store Data, Return a Map](#ctxproducer-store-data-return-a-map)
+    - [`@ctx.consumer`: Transform and Derive](#ctxconsumer-transform-and-derive)
+    - [`ctx.dispatch_tool_call()`: Single Entry Point](#ctxdispatch_tool_call-single-entry-point)
     - [Schema Export](#schema-export)
   - [Built-in ToolSets](#built-in-toolsets)
-    - [`paginator(ctx, name)` — List Navigation](#paginatorctx-name--list-navigation)
-    - [`text_search(ctx, name, *, fields=None)` — Full-Text Search](#text_searchctx-name--fieldsnone--full-text-search)
-    - [`filter_set(ctx, name)` — Structured Filtering](#filter_setctx-name--structured-filtering)
-    - [`kv_reader(ctx, name)` — Dict Workspaces](#kv_readerctx-name--dict-workspaces)
-    - [`text_content(ctx, name)` — Raw Text / Scalar Navigation](#text_contentctx-name--raw-text--scalar-navigation)
-    - [Text Transforms — Convert Strings to Structured Data](#text-transforms--convert-strings-to-structured-data)
-    - [`pipeline(ctx, name)` — Declarative Data Pipelines](#pipelinectx-name--declarative-data-pipelines)
+    - [`paginator(ctx, name)`: List Navigation](#paginatorctx-name-list-navigation)
+    - [`text_search(ctx, name, *, fields=None)`: Full-Text Search](#text_searchctx-name--fieldsnone-full-text-search)
+    - [`filter_set(ctx, name)`: Structured Filtering](#filter_setctx-name-structured-filtering)
+    - [`kv_reader(ctx, name)`: Dict Workspaces](#kv_readerctx-name-dict-workspaces)
+    - [`text_content(ctx, name)`: Raw Text / Scalar Navigation](#text_contentctx-name-raw-text--scalar-navigation)
+    - [Text Transforms: Convert Strings to Structured Data](#text-transforms-convert-strings-to-structured-data)
+    - [`pipeline(ctx, name)`: Declarative Data Pipelines](#pipelinectx-name-declarative-data-pipelines)
   - [Custom ToolSets](#custom-toolsets)
   - [Storage Backends](#storage-backends)
     - [MemoryStore](#memorystore)
@@ -81,23 +81,23 @@ Every production agent team builds the same workaround: store the data somewhere
 ```python
 # Before: raw data floods the context window
 def search_papers(query: str) -> list[dict]:
-    return database.search(query)  # 10,000 results → LLM chokes
+    return database.search(query)  # 10,000 results, LLM chokes
 
 # After: data is stored, agent gets a map
 @ctx.producer(workspace_type="papers", toolsets=[paginator(ctx), search, filters])
 def search_papers(query: str) -> list[dict]:
-    return database.search(query)  # 10,000 results → stored in workspace
+    return database.search(query)  # 10,000 results, stored in workspace
     # Agent receives:
     # {
     #   "workspace_id": "papers_f3a8bc12",
     #   "item_count": 10000,
     #   "data_shape": "list",
     #   "available_tools": ["papers_paginate(...)", "papers_search(...)"],
-    #   "next_steps": ["• papers_paginate: Return a page of items...", ...]
+    #   "next_steps": ["papers_paginate: Return a page of items...", ...]
     # }
 ```
 
-The agent then explores with surgical precision — paginating, searching, filtering — pulling only what it needs into the context window. **The data stays server-side. The agent stays smart.**
+The agent then explores with surgical precision, paginating, searching, filtering, pulling only what it needs into the context window. **The data stays server-side. The agent stays smart.**
 
 ---
 
@@ -127,7 +127,7 @@ from ctxtual.utils import paginator, text_search, filter_set, pipeline
 
 ctx = Ctx(store=MemoryStore())
 
-# Wrap your data-fetching function — toolsets get their name from workspace_type
+# Wrap your data-fetching function, toolsets get their name from workspace_type
 @ctx.producer(workspace_type="papers", toolsets=[
     paginator(ctx),
     text_search(ctx, fields=["title", "abstract"]),
@@ -137,7 +137,7 @@ ctx = Ctx(store=MemoryStore())
 def search_papers(query: str, limit: int = 10_000) -> list[dict]:
     return database.search(query, limit)
 
-# Agent calls the producer → gets a notification, not 10K items
+# Agent calls the producer & gets a notification, not 10K items
 ref = search_papers("machine learning")
 ws_id = ref["workspace_id"]
 
@@ -188,30 +188,30 @@ pip install langchain-core      # for ctxtual.integrations.langchain
 
 ```
 Your Agent Loop
-  LLM ←→ tool_calls ←→ ctx.dispatch_tool_call()
+LLM - tool_calls - ctx.dispatch_tool_call()
 
 Ctx (orchestrator)
-  @producer / @consumer decorators
-  Schema export (OpenAI, Anthropic, LangChain format)
-  Dispatch routing — one method handles all tool calls
-  Thread-safe (RLock)
+@producer / @consumer decorators
+Schema export (OpenAI, Anthropic, LangChain format)
+Dispatch routing — one method handles all tool calls
+Thread-safe (RLock)
 
 ToolSets (consumer tools)
-  paginator · text_search · filter_set
-  kv_reader · text_content · pipeline
-  + your custom domain tools
+paginator, text_search, filter_set
+kv_reader, text_content, pipeline
++ your custom domain tools
 
 Store (pluggable backend)
-  MemoryStore — fast, in-process, LRU eviction
-  SQLiteStore — persistent, FTS5 search, WAL mode
-  BaseStore   — subclass for Redis, Postgres, S3, etc.
+MemoryStore: fast, in-process, LRU eviction
+SQLiteStore: persistent, FTS5 search, WAL mode
+BaseStore: subclass for Redis, Postgres, S3, etc.
 ```
 
 **Data flow:**
 1. **Producer** runs your function, stores the result in a workspace, returns a `WorkspaceRef` notification to the LLM.
 2. **LLM** reads the notification, sees available tools, calls them.
 3. **Consumer tools** (paginate, search, filter, etc.) read from the store and return only the requested slice.
-4. **The LLM never sees the full dataset.** It sees pages, search results, filtered subsets — exactly what it needs.
+4. **The LLM never sees the full dataset.** It sees pages, search results, filtered subsets, exactly what it needs.
 
 ---
 
@@ -224,10 +224,10 @@ The central orchestrator. One per application (or per agent session).
 ```python
 from ctxtual import Ctx, MemoryStore, SQLiteStore
 
-# In-memory (default) — fast, test-friendly, process-scoped
+# In-memory (default): fast, test-friendly, process-scoped
 ctx = Ctx(store=MemoryStore())
 
-# Persistent — survives process restarts
+# Persistent: survives process restarts
 ctx = Ctx(store=SQLiteStore("agent.db"))
 
 # With configuration
@@ -239,7 +239,7 @@ ctx = Ctx(
 )
 ```
 
-### `@ctx.producer` — Store Data, Return a Map
+### `@ctx.producer`: Store Data, Return a Map
 
 Wraps any function so its return value is stored in a workspace. The agent gets a self-describing notification instead of raw data.
 
@@ -265,7 +265,7 @@ def search_papers(query: str) -> list[dict]:
 | `"papers_{query}"` | Templated from kwargs | Idempotent — same args = same workspace (overwritten) |
 | `lambda kw: f"ws_{kw['user_id']}"` | Custom callable | Full control over deduplication logic |
 
-### `@ctx.consumer` — Transform and Derive
+### `@ctx.consumer`: Transform and Derive
 
 Consumers read from one workspace and optionally produce a new one. This enables multi-hop agent pipelines.
 
@@ -289,9 +289,9 @@ def clean_and_filter(workspace_id: str, forge_ctx: ConsumerContext):
 | `emit(payload, *, workspace_type, meta, ttl)` | Store derived data as a new workspace, return `WorkspaceRef` dict |
 | `store` | Direct access to the store backend |
 
-### `ctx.dispatch_tool_call()` — Single Entry Point
+### `ctx.dispatch_tool_call()`: Single Entry Point
 
-Route any tool call — producers and consumers — through one method. This is what your agent loop calls.
+Route any tool call, producers and consumers, through one method. This is what your agent loop calls.
 
 ```python
 result = ctx.dispatch_tool_call("papers_search", {"workspace_id": ws_id, "query": "attention"})
@@ -300,13 +300,13 @@ result = ctx.dispatch_tool_call("papers_search", {"workspace_id": ws_id, "query"
 **Always returns a value, never raises on tool errors:**
 
 ```python
-# Success → tool result (any type)
+# Success, tool result (any type)
 {"matches": [...], "total_matches": 42}
 
-# Unknown tool → structured error dict
+# Unknown tool, structured error dict
 {"error": "Tool 'bad_name' not found.", "available_tools": [...], "suggested_action": "..."}
 
-# Workspace not found → structured error with available workspaces
+# Workspace not found, structured error with available workspaces
 {"error": "Workspace 'ws_bad' not found.", "available_workspaces": ["ws_real"], "suggested_action": "..."}
 ```
 
@@ -349,7 +349,7 @@ def fetch(query): ...
 pager = paginator(ctx, "papers")
 ```
 
-### `paginator(ctx, name)` — List Navigation
+### `paginator(ctx, name)`: List Navigation
 
 ```python
 from ctxtual.utils import paginator
@@ -363,7 +363,7 @@ pager = paginator(ctx, "papers")  # data_shape="list"
 | `{name}_get_item(workspace_id, index)` | Single item by zero-based index |
 | `{name}_get_slice(workspace_id, start=0, end=20)` | Arbitrary slice |
 
-### `text_search(ctx, name, *, fields=None)` — Full-Text Search
+### `text_search(ctx, name, *, fields=None)`: Full-Text Search
 
 ```python
 from ctxtual.utils import text_search
@@ -375,7 +375,7 @@ search = text_search(ctx, "papers", fields=["title", "abstract"])  # data_shape=
 | `{name}_search(workspace_id, query, max_results=20, case_sensitive=False)` | BM25-ranked full-text search (FTS5 on SQLiteStore, TF scoring on MemoryStore) |
 | `{name}_field_values(workspace_id, field, max_values=50)` | Distinct values for a field (facet discovery) |
 
-### `filter_set(ctx, name)` — Structured Filtering
+### `filter_set(ctx, name)`: Structured Filtering
 
 ```python
 from ctxtual.utils import filter_set
@@ -387,7 +387,7 @@ filters = filter_set(ctx, "papers")  # data_shape="list"
 | `{name}_filter_by(workspace_id, field, value, operator="eq")` | Filter by field. Operators: `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `contains`, `startswith` |
 | `{name}_sort_by(workspace_id, field, descending=False, limit=100)` | Sort by field |
 
-### `kv_reader(ctx, name)` — Dict Workspaces
+### `kv_reader(ctx, name)`: Dict Workspaces
 
 For single-document workspaces (config, metadata, API responses that are dicts, not lists).
 
@@ -401,7 +401,7 @@ kv = kv_reader(ctx, "config")  # data_shape="dict"
 | `{name}_get_keys(workspace_id)` | List top-level keys |
 | `{name}_get_value(workspace_id, key)` | Read value at key |
 
-### `text_content(ctx, name)` — Raw Text / Scalar Navigation
+### `text_content(ctx, name)`: Raw Text / Scalar Navigation
 
 For producers that return a **string** (HTML page, PDF text, log file, API response body). Instead of stuffing the entire string into context, the agent navigates it with character-based pagination and search.
 
@@ -416,7 +416,7 @@ reader = text_content(ctx, "page")  # data_shape="scalar"
 | `{name}_search_in_text(workspace_id, query, context_chars=100, max_results=20)` | Find occurrences with surrounding context, character offsets |
 | `{name}_get_length(workspace_id)` | Character, word, and line counts |
 
-**Example — webpage producer:**
+**Example, webpage producer:**
 
 ```python
 @ctx.producer(workspace_type="page", toolsets=[reader])
@@ -427,7 +427,7 @@ def read_webpage(url: str) -> str:
 # and tools: page_read_page, page_search_in_text, page_get_length
 ```
 
-### Text Transforms — Convert Strings to Structured Data
+### Text Transforms: Convert Strings to Structured Data
 
 When you want to use **list-based** tools (paginator, filter, pipeline) with text content, transform the string before storing:
 
@@ -439,28 +439,28 @@ from ctxtual import chunk_text, split_sections, split_markdown_sections
 def ingest_document(path: str) -> list[dict]:
     text = open(path).read()
     return chunk_text(text, chunk_size=2000, overlap=200)
-    # → [{"chunk_index": 0, "text": "...", "char_offset": 0}, ...]
+    # [{"chunk_index": 0, "text": "...", "char_offset": 0}, ...]
 
 # Split by blank lines (paragraphs)
 @ctx.producer(workspace_type="paragraphs", toolsets=[pager])
 def split_doc(text: str) -> list[dict]:
     return split_sections(text, separator="\n\n")
-    # → [{"section_index": 0, "text": "First paragraph..."}, ...]
+    # [{"section_index": 0, "text": "First paragraph..."}, ...]
 
 # Split by Markdown headers
 @ctx.producer(workspace_type="sections", toolsets=[pager, search])
 def parse_markdown(content: str) -> list[dict]:
     return split_markdown_sections(content)
-    # → [{"section_index": 0, "heading": "Introduction", "level": 1, "text": "..."}, ...]
+    # [{"section_index": 0, "heading": "Introduction", "level": 1, "text": "..."}, ...]
 ```
 
 All transforms pass non-strings through unchanged, so they're safe in pipelines that might receive mixed data.
 
-### `pipeline(ctx, name)` — Declarative Data Pipelines
+### `pipeline(ctx, name)`: Declarative Data Pipelines
 
 The most powerful built-in. Instead of the LLM making 4+ round-trips
-(search → filter → sort → limit), it describes the entire chain in **one tool call**.
-Intermediate data stays server-side — only the final result enters context.
+(search -> filter -> sort -> limit), it describes the entire chain in **one tool call**.
+Intermediate data stays server-side,only the final result enters context.
 
 This is ctxtual's answer to [programmatic tool calling](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/programmatic-tool-calling):
 compound operations in a single step, framework-agnostic, works with any LLM.
@@ -493,7 +493,7 @@ pipe = pipeline(ctx, "papers")  # data_shape="list"
 | `group_by` | `{"group_by": {"field": "category", "metrics": {"n": "count", "avg": "mean:score"}}}` | Aggregation. Metrics: `count`, `sum:f`, `mean:f`, `min:f`, `max:f`, `median:f`, `stddev:f`, `values:f` |
 | `count` | `{"count": true}` | Terminal: return `{"count": N}` |
 
-**Example — what would take 4 tool calls in 1:**
+**Example, what would take 4 tool calls in 1:**
 
 ```python
 result = ctx.dispatch_tool_call("papers_pipe", {
@@ -506,10 +506,10 @@ result = ctx.dispatch_tool_call("papers_pipe", {
         {"select": ["title", "author", "citations"]},
     ],
 })
-# → {"items": [...], "count": 5}  — one call, zero intermediate context
+# {"items": [...], "count": 5}, one call, zero intermediate context
 ```
 
-**Example — tag frequency analysis (flatten → group → sort):**
+**Example, tag frequency analysis (flatten -> group -> sort):**
 
 ```python
 result = ctx.dispatch_tool_call("papers_pipe", {
@@ -523,7 +523,7 @@ result = ctx.dispatch_tool_call("papers_pipe", {
 })
 ```
 
-**Example — save pipeline result as a new workspace:**
+**Example, save pipeline result as a new workspace:**
 
 ```python
 result = ctx.dispatch_tool_call("papers_pipe", {
@@ -560,7 +560,7 @@ def detect_anomalies(workspace_id: str, std_threshold: float = 2.0) -> dict:
     return {"anomalies": flagged, "count": len(flagged)}
 ```
 
-**`output_hint`** is appended to the tool result as a `_hint` field, making every tool self-describing. The `{workspace_id}` placeholder is replaced at runtime. The result envelope is always `{"result": <original>, "_hint": "<hint>"}` — the original return shape is never mutated.
+**`output_hint`** is appended to the tool result as a `_hint` field, making every tool self-describing. The `{workspace_id}` placeholder is replaced at runtime. The result envelope is always `{"result": <original>, "_hint": "<hint>"}`, the original return shape is never mutated.
 
 **`data_shape`** validation:
 - Set `data_shape="list"` on toolsets that expect list data (paginator, search, filter, pipeline)
@@ -568,7 +568,7 @@ def detect_anomalies(workspace_id: str, std_threshold: float = 2.0) -> dict:
 - Set `data_shape="scalar"` on toolsets that expect raw strings (text_content)
 - At producer time: logs a warning if the payload shape doesn't match
 - At tool-call time: returns a structured error dict with `expected_shape`, `actual_shape`, `suggested_action`
-- **Shape-aware WorkspaceRef**: incompatible tools are automatically filtered from `available_tools` — if a producer returns a string, the LLM only sees `text_content` tools, not paginator tools
+- **Shape-aware WorkspaceRef**: incompatible tools are automatically filtered from `available_tools`, if a producer returns a string, the LLM only sees `text_content` tools, not paginator tools
 
 ---
 
@@ -737,7 +737,7 @@ async def explore(workspace_id: str, page: int = 0):
 
 ## Error Recovery
 
-LLMs make mistakes. ctxtual never crashes — it teaches the LLM to self-correct.
+LLMs make mistakes. ctxtual never crashes, it teaches the LLM to self-correct.
 
 | LLM Mistake | Response |
 |-------------|----------|
@@ -869,11 +869,11 @@ queries **immediately** without paginating first to discover the data:
 
 ```python
 ref = search_papers("transformers")
-# ref["item_schema"]     → {"type": "object", "properties": {"title": {"type": "string"},
+# ref["item_schema"]     {"type": "object", "properties": {"title": {"type": "string"},
 #                            "year": {"type": "integer"}, "citations": {"type": "integer"}, ...},
 #                            "required": ["title", "year", ...]}
-# ref["available_tools"] → ["papers_paginate(...)", "papers_pipe(...)", ...]
-# ref["next_steps"]      → ["• papers_paginate: Return a page of items...", ...]
+# ref["available_tools"] ["papers_paginate(...)", "papers_pipe(...)", ...]
+# ref["next_steps"]      ["papers_paginate: Return a page of items...", ...]
 ```
 
 The schema tells the LLM **types** — it knows `year` is an integer (so `$gte`/`$lte` work),
@@ -914,13 +914,13 @@ The `examples/` directory contains production-pattern examples organized from be
 | # | Example | What It Shows |
 |---|---------|---------------|
 | 01 | **quickstart.py** | The 20-line pattern — copy and customize |
-| 02 | **rag_support_agent.py** | Search → filter → read knowledge base articles |
-| 03 | **data_pipeline.py** | Producer → Consumer → Consumer with workspace lineage |
+| 02 | **rag_support_agent.py** | Search -> filter -> read knowledge base articles |
+| 03 | **data_pipeline.py** | Producer -> Consumer -> Consumer with workspace lineage |
 | 04 | **custom_tools.py** | Financial analytics: anomaly detection, aggregation, date ranges |
-| 05 | **pipelines.py** | Compound operations in one call: filter→sort→group→save |
+| 05 | **pipelines.py** | Compound operations in one call: filter->sort->group->save |
 | 06 | **persistence.py** | SQLite + mutations: `patch_item`, `append_items`, process restart |
 | 07 | **error_handling.py** | Every failure mode and how the LLM self-corrects |
-| 08 | **multi_agent.py** | Collector → Analyst → Writer sharing one store |
+| 08 | **multi_agent.py** | Collector -> Analyst -> Writer sharing one store |
 | 09 | **openai_agent.py** | Full OpenAI agent loop with schema export and tool dispatch |
 | 10 | **anthropic_agent.py** | Anthropic Claude code review agent with dict + list workspaces |
 | 11 | **concurrent_server.py** | FastAPI server with 20 concurrent sessions, thread safety, TTL |
