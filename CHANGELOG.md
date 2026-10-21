@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.5.0
+
+Result shapes real servers produce, and defaults tuned for clients that cache
+the prompt: there, a round trip costs more than the tokens it saves.
+
+### Changed
+
+- Default threshold 20,000 characters (was 8,000): a result of a few
+  thousand tokens is cheaper inline than through an extra call. Text pages
+  are 10,000 characters (was 4,000), so a long document takes fewer reads;
+  one item's values are cut at 4,000 characters (was 2,000); outlines show up
+  to 50 headings (was 30).
+- Each tool description says what a stored result is, since some clients
+  don't show server instructions to the model (definitions: about 4,300
+  characters, cached by clients with the rest of the prompt).
+
+### Fixed
+
+- Results with an image or audio next to a large text were passed through
+  whole; the text is now stored and the image kept in the response.
+- Embedded text resources (GitHub's `get_file_contents` returns files this
+  way) were passed through whole; they are stored, with their `uri` in the
+  notice.
+- An object made of one long text (`{"url": …, "markdown": "…"}`) was stored
+  as escaped JSON, without an outline and with broken phrase search; the text
+  itself is stored now, the other fields shown in the notice.
+- Objects keyed by name or id (`{"pkg-a": {...}, …}`, maps of counts), output
+  sent as one JSON block per item, and Python-repr output (`str(rows)`) were
+  stored as text; they are lists now (searchable, sortable, countable).
+- A short summary sent next to large structured content was dropped; it is
+  in the notice as `message`.
+- Search hits on items with long values showed the start of the value, not
+  where the words are; hits now include that passage (`match`).
+- Comment blocks in YAML, shell or Python files were read as markdown
+  headings, giving a misleading outline. Source code now gets an outline of
+  its definitions (`def`, `class`, `function`, …) with the page of each.
+- Long lists inside items are cut like long strings (first 20 elements, with
+  the call that reads them all); reading one item shortens its long values
+  until it fits the response instead of failing.
+- Notices for lists of plain values no longer suggest `result_query`, and
+  query examples no longer sort by id-like fields (`number`, `*_id`).
+
 ## 0.4.0
 
 The MCP interface, redesigned from the model's side: fewer tools, one

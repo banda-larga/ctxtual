@@ -1,7 +1,7 @@
 """
 12 — Offload large results from an MCP server (FastMCP middleware).
 
-One line on your own server: results above 8,000 characters are stored and
+One line on your own server: results above 20,000 characters are stored and
 the model gets a notice plus four result_* tools (search, read, query, list)
 to explore them.
 

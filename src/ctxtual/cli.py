@@ -140,8 +140,8 @@ def _parser() -> argparse.ArgumentParser:
 
 def _wrap_options(p: argparse.ArgumentParser, *, for_install: bool = False) -> None:
     g = p.add_argument_group("offloading")
-    g.add_argument("--threshold", type=int, default=None if for_install else 8_000,
-                   help="offload results longer than this many characters (default 8000)")
+    g.add_argument("--threshold", type=int, default=None if for_install else 20_000,
+                   help="offload results longer than this many characters (default 20000)")
     g.add_argument("--ttl", type=float, default=None if for_install else 3600.0,
                    help="drop a stored result after this many seconds without use; "
                    "0 = keep until evicted (default 3600)")

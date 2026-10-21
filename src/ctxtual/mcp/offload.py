@@ -30,6 +30,7 @@ import asyncio
 import contextlib
 import fnmatch
 import inspect
+import itertools
 import json
 import logging
 import math
@@ -68,13 +69,13 @@ logger = logging.getLogger("ctxtual.mcp")
 #: as "the data" (e.g. ``{"items": [...], "total": 900}``).
 _DOMINANT_SHARE = 0.8
 #: Characters per page when reading text or a long field.
-PAGE_CHARS = 4_000
+PAGE_CHARS = 10_000
 #: Characters a string keeps in pages of items and query rows.
 LIST_STRING_CHARS = 300
 #: Characters a string keeps in search hits (several hits per response).
 HIT_STRING_CHARS = 160
 #: Characters a string keeps when one item is read.
-ITEM_STRING_CHARS = 2_000
+ITEM_STRING_CHARS = 4_000
 #: Most items, rows or passages one call returns.
 MAX_ITEMS = 50
 #: The tools Offload can inject (``tools=`` picks a subset).
@@ -131,7 +132,7 @@ class Offload(ToolInjectionMiddleware):
     def __init__(
         self,
         *,
-        threshold: int = 8_000,
+        threshold: int = 20_000,
         thresholds: Mapping[str, int] | None = None,
         include: Sequence[str] | None = None,
         exclude: Sequence[str] = (),
@@ -292,10 +293,20 @@ class Offload(ToolInjectionMiddleware):
     def _maybe_store(
         self, name: str, arguments: dict[str, Any], result: ToolResult, limit: int
     ) -> ToolResult:
-        content = list(result.content or [])
-        if any(getattr(block, "type", None) != "text" for block in content):
-            return result  # images, audio, resources: pass through
-        text = "".join(block.text for block in content)
+        # Text and text resources can be stored; images, audio, binary
+        # resources and links are kept in the response next to the notice.
+        parts: list[tuple[str, str | None]] = []
+        kept: list[Any] = []
+        for block in result.content or []:
+            kind = getattr(block, "type", None)
+            resource_text = getattr(getattr(block, "resource", None), "text", None)
+            if kind == "text":
+                parts.append((block.text, None))
+            elif kind == "resource" and isinstance(resource_text, str):
+                parts.append((resource_text, str(block.resource.uri)))
+            else:
+                kept.append(block)
+        text = _join_parts(parts)
         structured = result.structured_content
         size = max(len(text), _json_len(structured) if structured is not None else 0)
         if size <= limit:
@@ -303,13 +314,21 @@ class Offload(ToolInjectionMiddleware):
 
         # Store the part that made the result large: structured content when
         # the text is (about) its serialization, else the text itself.
+        extra: dict[str, Any] = {}
         if structured is not None and 2 * _json_len(structured) >= len(text):
             payload = unwrap_structured(structured)
             if isinstance(payload, str):  # e.g. a `-> str` tool: still JSON / JSON Lines?
                 payload = parse_text_payload(payload)
+            if text.strip() and 2 * len(text) < _json_len(structured):
+                extra["message"] = _trim(text, 2_000, "the message")  # a summary next to the data
         else:
-            payload = parse_text_payload(text)
-        payload, other_fields = _focus(payload)
+            payload = _parse_parts(parts)
+            filled = [uri for t, uri in parts if t.strip()]
+            if len(filled) == 1 and filled[0]:
+                extra["uri"] = filled[0]
+        payload, other_fields, shape = _focus(payload)
+        if shape:
+            extra["note"] = shape
         if not isinstance(payload, list):
             payload = _as_text(payload)
         chars = size if isinstance(payload, list) else len(payload)
@@ -326,10 +345,11 @@ class Offload(ToolInjectionMiddleware):
             )
             self._evict(keep=ref.workspace_id)
         notice = self._notice(
-            ref.workspace_id, name, payload, size, other_fields, has_arguments=bool(arguments)
+            ref.workspace_id, name, payload, size, other_fields,
+            has_arguments=bool(arguments), extra=extra,
         )
         return ToolResult(
-            content=[TextContent(type="text", text=_dumps(notice))],
+            content=[TextContent(type="text", text=_dumps(notice)), *kept],
             structured_content=notice,
             meta=result.meta,
         )
@@ -370,9 +390,10 @@ class Offload(ToolInjectionMiddleware):
         *,
         saved: bool = False,
         has_arguments: bool = False,
+        extra: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         p = self.prefix
-        notice: dict[str, Any] = {"result_id": result_id, "tool": tool}
+        notice: dict[str, Any] = {"result_id": result_id, "tool": tool, **(extra or {})}
         steps = []
         if isinstance(payload, list):
             notice["items"] = len(payload)
@@ -388,7 +409,7 @@ class Offload(ToolInjectionMiddleware):
             )
             if "search" in self.tools:
                 steps.append(f"{p}_search(result_id, query) to find items by text")
-            if "query" in self.tools:
+            if "query" in self.tools and any(isinstance(i, dict) for i in payload[:200]):
                 steps.append(
                     f"{p}_query(result_id, steps) to filter, sort and count, e.g. "
                     f"steps={_example_steps(payload, fields or {})}"
@@ -529,18 +550,24 @@ class Offload(ToolInjectionMiddleware):
                 1 for _, _, item in scored
                 if all(t in json.dumps(item, ensure_ascii=False, default=str).lower() for t in terms)
             )
-            hits = [
-                {"index": i, "item": self._shape(i, item, fields, HIT_STRING_CHARS)}
-                for _, i, item in scored[:limit]
-            ]
+            hits = []
+            for _, i, item in scored[:limit]:
+                hit = {"index": i, "item": self._shape(i, item, fields, HIT_STRING_CHARS)}
+                # Where the words are, when the cut item doesn't show it.
+                match = _match_passage(item, query_terms(query), HIT_STRING_CHARS)
+                if match is not None:
+                    hit["match"] = match
+                hits.append(hit)
             return {"result_id": result_id, "matching_any_word": len(scored),
                     "matching_all_words": all_terms, "returned": len(hits),
                     "max_results": limit, "hits": hits}
 
         return self._tool(search, f"{p}_search", (
-            "Search a stored result. For a list: the best-matching items, best first, "
-            f"each with its index{open_hint}. For a text: the passages that contain "
-            "the query, with their page."
+            f"Search a stored result.{_STORED} For a list: the best-matching items, best "
+            f"first, each with its index{open_hint} and, when the words are deep inside "
+            "a long value, the passage that contains them. For a text: the passages "
+            "that contain the query (the exact phrase if it occurs, else the most query "
+            "words), each with its page."
         ), size_hint="Ask for less: a smaller max_results, or fields=[...] with only "
                      "the fields you need.")
 
@@ -595,8 +622,14 @@ class Offload(ToolInjectionMiddleware):
             if field is None:
                 if isinstance(item, str) and len(item) > ITEM_STRING_CHARS:
                     return {"result_id": result_id, "index": index, **_text_page(item, page)}
-                return {"result_id": result_id, "index": index,
-                        "item": self._shape(index, item, fields, ITEM_STRING_CHARS)}
+                # Cut long values shorter until the item fits the response.
+                limit, many = ITEM_STRING_CHARS, MAX_ITEMS
+                while True:
+                    response = {"result_id": result_id, "index": index,
+                                "item": self._shape(index, item, fields, limit, many)}
+                    if limit <= 200 or _json_len(response) <= self.max_output_chars:
+                        return response
+                    limit, many = limit // 2, max(5, many // 2)
             value = resolve_path(item, field)
             if value is MISSING:
                 available = [str(k) for k in item][:50] if isinstance(item, dict) else []
@@ -608,9 +641,13 @@ class Offload(ToolInjectionMiddleware):
             return {"result_id": result_id, "index": index, "field": field, **_text_page(encoded, page)}
 
         return self._tool(read, f"{p}_read", (
-            "Read a stored result. A text: page by page. A list: a page of items, or "
-            "one item with index=N; long values in an item are cut, read one in full "
-            "with index=N and field=… (it is paged). fields=[...] keeps only some fields."
+            f"Read a stored result.{_STORED} A text: page by page ({PAGE_CHARS:,} chars "
+            "each). A list: a page of items, or one item with index=N; long values in an "
+            "item are cut, read one in full with index=N and field=… (paged the same "
+            "way). fields=[...] keeps only some fields.\n"
+            "Arguments besides result_id, for example: none (the first page); page=3; "
+            "index=7; index=7, field='body', page=1; page=2, page_size=20, "
+            "fields=['title', 'state']."
         ), size_hint="Ask for less: a smaller page_size, or fields=[...] with only the "
                      "fields you need.")
 
@@ -646,7 +683,7 @@ class Offload(ToolInjectionMiddleware):
             return self._rows(result_id, payload, steps, output)
 
         return self._tool(query, f"{p}_query", (
-            "Filter, sort, group or count a stored list in one call; only the output "
+            f"Filter, sort, group or count a stored list in one call.{_STORED} Only the output "
             f"comes back (at most {MAX_ITEMS} rows, each with its index when it is an "
             "item of the list). Dot paths ('author.name') address nested fields.\n"
             "Steps:\n"
@@ -707,8 +744,10 @@ class Offload(ToolInjectionMiddleware):
             return response
 
         return self._tool(list_results, f"{self.prefix}_list", (
-            "List the stored results of this conversation, newest first. Use it to "
-            "find a result_id again, e.g. after the conversation was summarized."
+            "List the stored results of this conversation, newest first: large tool "
+            "results kept out of the conversation, with the tool and arguments that "
+            "produced them. Use it to find a result_id again, e.g. after the "
+            "conversation was summarized."
         ), size_hint="Use a result_id from a recent notice.")
 
     # ── helpers ───────────────────────────────────────────────────────────
@@ -744,7 +783,10 @@ class Offload(ToolInjectionMiddleware):
         store.touch(result_id)
         return meta, store.get_items(result_id)
 
-    def _shape(self, index: int, item: Any, fields: Sequence[str] | None, limit: int) -> Any:
+    def _shape(
+        self, index: int, item: Any, fields: Sequence[str] | None, limit: int,
+        max_items: int = 20,
+    ) -> Any:
         if fields and isinstance(item, dict):
             projected = {}
             for f in fields:
@@ -754,11 +796,11 @@ class Offload(ToolInjectionMiddleware):
             item = projected
         p = self.prefix
 
-        def pointer(path: str, length: int) -> str:
+        def pointer(path: str, length: int, unit: str) -> str:
             where = f", field='{path}'" if path else ""
-            return f"{length:,} chars; read it with {p}_read(result_id, index={index}{where})"
+            return f"{length:,} {unit}; read it with {p}_read(result_id, index={index}{where})"
 
-        return cut_strings(item, limit, pointer if "read" in self.tools else None)
+        return cut_strings(item, limit, pointer if "read" in self.tools else None, "", max_items)
 
     def _save(self, ws_type: str, source: str, output: Any, name: str) -> dict[str, Any]:
         if not isinstance(output, list):
@@ -797,6 +839,9 @@ class Offload(ToolInjectionMiddleware):
 # ── module helpers ────────────────────────────────────────────────────────
 
 
+#: Said in each tool description: some clients don't show server instructions.
+_STORED = (" A tool result too large to return in full is stored, and the tool returns "
+           "a notice with its result_id instead.")
 _STR: dict[str, Any] = {"type": "string"}
 _INT: dict[str, Any] = {"type": "integer"}
 _FIELDS: dict[str, Any] = {"type": "array", "items": {"type": "string"}}
@@ -870,38 +915,101 @@ def _principal_scope() -> str | None:
     return f"principal:{principal}" if principal else None
 
 
-def _focus(payload: Any, depth: int = 0) -> tuple[Any, dict[str, Any] | None]:
+def _focus(payload: Any) -> tuple[Any, dict[str, Any] | None, str | None]:
     """
-    Pick the part of *payload* worth exploring: a list stays a list; an
-    object made mostly of one list (also nested, as in
-    ``{"data": {"items": [...]}}``) yields that list plus a preview of the
-    other fields; a single-key object yields its value; anything else
+    Pick the part of *payload* worth exploring, as ``(payload, other_fields,
+    note)``: a list or a text stays as it is; an object made mostly of one
+    list or one text (also nested, as in ``{"data": {"items": [...]}}`` or
+    ``{"url": ..., "markdown": "..."}``) yields that value plus a preview of
+    the other fields; an object with many keys of the same kind (``{"pkg-a":
+    {...}, "pkg-b": {...}}``) becomes a list of its entries; anything else
     becomes readable text.
     """
     if isinstance(payload, (list, str)):
-        return payload, None
-    if isinstance(payload, dict) and payload and depth < 4:
-        total = _json_len(payload)
-        for key, value in payload.items():
-            if not isinstance(value, (list, dict)) or _json_len(value) < _DOMINANT_SHARE * total:
-                continue
-            if isinstance(value, list):
-                rest = {k: v for k, v in payload.items() if k != key}
-                if rest:
-                    return value, {"list_field": str(key), **build_preview(rest)}
-                # Nested: the caller still needs this key for the path.
-                return value, ({"list_field": str(key)} if depth else None)
-            inner, inner_rest = _focus(value, depth + 1)
-            if isinstance(inner, list):
-                rest = {k: v for k, v in payload.items() if k != key}
-                path = f"{key}.{inner_rest['list_field']}" if inner_rest else str(key)
-                extra = {k: v for k, v in (inner_rest or {}).items() if k != "list_field"}
-                return inner, {"list_field": path, **build_preview(rest), **extra}
-    if isinstance(payload, dict) and len(payload) == 1:
-        (value,) = payload.values()
-        if isinstance(value, str):
-            return value, None
-    return json.dumps(payload, ensure_ascii=False, indent=1, default=str), None
+        return payload, None, None
+    if isinstance(payload, dict) and payload:
+        found = _dominant(payload)
+        if found is not None:
+            value, path, rest, note = found
+            kind = "list_field" if isinstance(value, list) else "text_field"
+            preview = build_preview(rest) if rest else {}
+            if isinstance(value, str) and preview != rest:
+                # Too much besides the text for a preview: keep it readable
+                # and searchable at the end of the stored text.
+                value = (f"{value}\n\n---\nOther fields of the result:\n"
+                         + json.dumps(rest, ensure_ascii=False, indent=1, default=str))
+                preview = {**preview, "…": "all other fields are at the end of the text"}
+            # A lone top-level key needs no explanation.
+            if "." in path or rest or note:
+                return value, {kind: path, **preview}, note
+            return value, None, None
+        entries = _entries(payload)
+        if entries is not None:
+            return entries
+    return json.dumps(payload, ensure_ascii=False, indent=1, default=str), None, None
+
+
+def _dominant(
+    node: dict[str, Any], depth: int = 0
+) -> tuple[Any, str, dict[str, Any], str | None] | None:
+    """The list or text holding most of *node*: (value, path, other fields, note)."""
+    if depth >= 4:
+        return None
+    total = _json_len(node)
+    for key, value in node.items():
+        if not isinstance(value, (list, dict, str)) or _json_len(value) < _DOMINANT_SHARE * total:
+            continue
+        rest = {str(k): v for k, v in node.items() if k != key}
+        if isinstance(value, (list, str)):
+            return value, str(key), rest, None
+        inner = _dominant(value, depth + 1)
+        if inner is not None:
+            value, path, inner_rest, note = inner
+            return value, f"{key}.{path}", {**rest, **inner_rest}, note
+        entries = _entries(value)
+        if entries is not None:
+            items, _, note = entries
+            return items, str(key), rest, note
+        return None
+    return None
+
+
+#: Keys an object needs before it is treated as a collection of entries.
+_MIN_ENTRIES = 20
+
+
+def _entries(obj: dict[str, Any]) -> tuple[list[Any], None, str] | None:
+    """
+    An object keyed by name or id (``{"a": {...}, "b": {...}}``, or a map of
+    counts) as a list of entries, so it can be searched, sorted and counted.
+    Each entry is the value with its key in ``key`` (or ``{"key", "value"}``
+    for plain values).
+    """
+    if len(obj) < _MIN_ENTRIES:
+        return None
+    values = list(obj.values())
+    # Entries of a collection are alike in size; one value holding half the
+    # data is not an entry (it would be too big to read as one item).
+    total = _json_len(obj)
+    if any(_json_len(v) > total / 2 for v in values):
+        return None
+    objects = sum(isinstance(v, dict) for v in values)
+    scalars = sum(not isinstance(v, (dict, list)) for v in values)
+    if objects >= 0.9 * len(values):
+        used = {f for v in values if isinstance(v, dict) for f in v}
+        key = next((name for name in ("key", "_key", "__key", "entry_key")
+                    if name not in used), "_entry_key_")
+        items = [{**v, key: k} if isinstance(v, dict) else {key: k, "value": v}
+                 for k, v in obj.items()]
+        items = [{key: item.pop(key), **item} for item in items]  # key first
+    elif scalars >= 0.9 * len(values):
+        key = "key"
+        items = [{"key": k, "value": v} for k, v in obj.items()]
+    else:
+        return None
+    note = (f"The result is an object with {len(obj):,} keys; each item is one entry, "
+            f"its key in {key!r}.")
+    return items, None, note
 
 
 def _source_indices(
@@ -947,12 +1055,18 @@ def _example_steps(items: list[Any], fields: Mapping[str, Any]) -> str:
             best = (distinct, name, values[0])
     if best is not None:
         steps.append({"filter": {best[1]: best[2]}})
-    numeric = [n for n, k in usable.items()
-               if k in ("integer", "number") and n.lower() not in ("id", "index")]
+    numeric = [n for n, k in usable.items() if k in ("integer", "number") and not _id_like(n)]
     if numeric:
         steps.append({"sort": {"field": numeric[0], "order": "desc"}})
     steps.append({"limit": 10})
     return _dumps(steps)
+
+
+def _id_like(name: str) -> bool:
+    """Field names that identify rather than measure (poor sort examples)."""
+    lower = name.lower()
+    return lower in ("id", "index", "number", "no", "num", "key", "idx") or \
+        lower.endswith(("_id", "_no", "_num", "_number")) or name.endswith(("Id", "ID"))
 
 
 # ── text search ───────────────────────────────────────────────────────────
@@ -1034,39 +1148,99 @@ def _excerpt(text: str, start: int, end: int) -> dict[str, Any]:
     return {"offset": start, "page": start // PAGE_CHARS, "text": text[lo:hi]}
 
 
+def _match_passage(item: Any, terms: list[str], shown: int) -> dict[str, Any] | None:
+    """
+    The passage of *item* with the most query words, if it lies in a value
+    longer than *shown* chars (cut in the hit) and past what the hit shows.
+    """
+    words = [t for t in terms if t]
+    if not words:
+        return None
+    pattern = re.compile("|".join(re.escape(w) for w in sorted(words, key=len, reverse=True)),
+                         re.IGNORECASE)
+    best: tuple[int, int, str, str] | None = None  # (-distinct words, start, path, value)
+    for path, value in _string_leaves(item):
+        if len(value) <= shown:
+            continue
+        found = [(m.start(), m.group().lower()) for m in itertools.islice(pattern.finditer(value), 200)]
+        if not found:
+            continue
+        candidate = (-len({w for _, w in found}), found[0][0], path, value)
+        if best is None or candidate[:2] < best[:2]:
+            best = candidate
+    if best is None or best[1] < shown - 40:
+        return None
+    _, start, path, value = best
+    lo, hi = max(0, start - 120), min(len(value), start + 200)
+    passage = ("…" if lo else "") + value[lo:hi] + ("…" if hi < len(value) else "")
+    return {"field": path, "text": passage} if path else {"text": passage}
+
+
+def _string_leaves(value: Any, path: str = "", budget: list[int] | None = None) -> Iterator[tuple[str, str]]:
+    """``(path, string)`` for the strings inside *value* (paths as resolve_path reads them)."""
+    budget = budget if budget is not None else [2_000]
+    if budget[0] <= 0:
+        return
+    budget[0] -= 1
+    if isinstance(value, str):
+        yield path, value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from _string_leaves(v, f"{path}.{k}" if path else str(k), budget)
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            yield from _string_leaves(v, f"{path}.{i}" if path else str(i), budget)
+
+
 # ── text outline and pages ────────────────────────────────────────────────
 
 _HEADING = re.compile(r"^ {0,3}(#{1,3})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-_MAX_OUTLINE = 30
+#: A definition in source code: top level, or one indent in (methods).
+_DEFINITION = re.compile(
+    r"^( {0,4}|\t?)(?:export\s+)?(?:default\s+)?(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?"
+    r"(?:def|class|function|func|fn|struct|enum|trait|impl|interface)\s+[\w$(*&<]"
+)
+_MAX_OUTLINE = 50
 
 
 def _outline(text: str) -> list[str] | None:
     """
-    Markdown headings (levels 1-3) as ``"page: title"`` lines, indented by
-    level; headings inside fenced code are skipped.  ``None`` if the text has
-    fewer than three headings.
+    Where things are in a long text, as ``"page: title"`` lines indented by
+    level: markdown headings (levels 1-3, not inside fenced code), or, for
+    source code, its definitions (``def``, ``class``, ``function``, …).
+    ``None`` if the text has fewer than three of either.
     """
-    entries: list[tuple[int, str, int]] = []
+    lines = text.splitlines(keepends=True)
+    headings: list[tuple[int, str, int]] = []
+    definitions: list[tuple[int, str, int]] = []
     offset, fence = 0, ""
-    for line in text.splitlines(keepends=True):
+    for n, line in enumerate(lines):
         stripped = line.rstrip("\r\n")
         opener = _FENCE.match(stripped)
+        page = offset // PAGE_CHARS
+        offset += len(line)
         if fence:
             if opener and opener.group(1)[0] == fence[0] and len(opener.group(1)) >= len(fence) \
                     and stripped.strip() == opener.group(1):
                 fence = ""
-        elif opener:
+            continue
+        if opener:
             fence = opener.group(1)
-        else:
-            match = _HEADING.match(stripped)
-            if match:
-                title = match.group(2)[:100]
-                previous = entries[-1][1] if entries else ""
-                # DeepWiki-style "Page: Overview" followed by "Overview".
-                if not (previous and previous.endswith(f": {title}")):
-                    entries.append((len(match.group(1)), title, offset // PAGE_CHARS))
-        offset += len(line)
+            continue
+        match = _HEADING.match(stripped)
+        if match and not _in_comment_block(lines, n, match.group(1)):
+            title = match.group(2)[:100]
+            previous = headings[-1][1] if headings else ""
+            # DeepWiki-style "Page: Overview" followed by "Overview".
+            if not (previous and previous.endswith(f": {title}")):
+                headings.append((len(match.group(1)), title, page))
+            continue
+        definition = _DEFINITION.match(stripped)
+        if definition and re.search(r"[(:{]", stripped):
+            level = 1 if not definition.group(1) else 2
+            definitions.append((level, stripped.strip().rstrip(":{ ")[:100], page))
+    entries = headings if len(headings) >= len(definitions) else definitions
     if len(entries) < 3:
         return None
     # Too many: drop the deepest level while more than one entry would remain.
@@ -1080,10 +1254,23 @@ def _outline(text: str) -> list[str] | None:
     if more > 0:
         entries = entries[:_MAX_OUTLINE - 1]
     top = min(level for level, _, _ in entries)
-    lines = [f"{'  ' * (level - top)}{page}: {title}" for level, title, page in entries]
+    out = [f"{'  ' * (level - top)}{page}: {title}" for level, title, page in entries]
     if more > 0:
-        lines.append(f"… {more + 1} more headings")
-    return lines
+        out.append(f"… {more + 1} more")
+    return out
+
+
+def _in_comment_block(lines: list[str], n: int, hashes: str) -> bool:
+    """
+    A ``#`` line in a run of three or more like it is a comment block (YAML,
+    shell, Python), not headings.
+    """
+    def like(m: int) -> bool:
+        return 0 <= m < len(lines) and lines[m].lstrip(" ").startswith(hashes + " ")
+
+    before = next(k for k in range(4) if not like(n - 1 - k))
+    after = next(k for k in range(4) if not like(n + 1 + k))
+    return before + after >= 2
 
 
 def _text_page(text: str, page: int) -> dict[str, Any]:
@@ -1099,6 +1286,41 @@ def _text_page(text: str, page: int) -> dict[str, Any]:
 # ── small helpers ─────────────────────────────────────────────────────────
 
 
+def _join_parts(parts: list[tuple[str, str | None]]) -> str:
+    if len(parts) == 1:
+        return parts[0][0]
+    return "\n\n".join(f"<{uri}>\n{text}" if uri else text for text, uri in parts)
+
+
+def _parse_parts(parts: list[tuple[str, str | None]]) -> Any:
+    """
+    The stored payload of a result's text blocks.  Several blocks that are
+    each JSON become one list when they are alike (lists, or one object per
+    item, as some servers send); one block holding most of the data is
+    stored by itself; otherwise the blocks are parsed as one text.
+    """
+    if len(parts) > 1:
+        if not any(uri for _, uri in parts):  # one document sent in pieces?
+            whole = parse_text_payload("".join(text for text, _ in parts))
+            if not isinstance(whole, str):
+                return whole
+        values = []
+        for text, _ in parts:
+            value = parse_text_payload(text)
+            if isinstance(value, str):
+                break
+            values.append(value)
+        else:
+            if all(isinstance(v, list) for v in values):
+                return [item for value in values for item in value]
+            sizes = [_json_len(v) for v in values]
+            if all(isinstance(v, dict) for v in values) and max(sizes) <= 0.5 * sum(sizes):
+                return values
+            if max(sizes) >= _DOMINANT_SHARE * sum(sizes):
+                return values[sizes.index(max(sizes))]
+    return parse_text_payload(_join_parts(parts))
+
+
 def _as_text(payload: Any) -> str:
     return payload if isinstance(payload, str) else _dumps(payload)
 
@@ -1111,12 +1333,12 @@ def _result(value: Any, *, is_error: bool = False) -> ToolResult:
     )
 
 
-def _trim(text: str, limit: int) -> str:
+def _trim(text: str, limit: int, what: str = "the error") -> str:
     """Start and end of *text* within about *limit* chars (unchanged if it fits)."""
     if len(text) <= limit:
         return text
     keep = max((limit - 80) // 2, 50)
-    trimmed = (f"{text[:keep]}\n… [{len(text) - 2 * keep:,} characters of the error "
+    trimmed = (f"{text[:keep]}\n… [{len(text) - 2 * keep:,} characters of {what} "
                f"omitted] …\n{text[-keep:]}")
     return trimmed if len(trimmed) < len(text) else text
 

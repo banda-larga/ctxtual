@@ -25,10 +25,16 @@ from fastmcp import Client, FastMCP  # noqa: E402
 from fastmcp.client.transports import StdioTransport, StreamableHttpTransport  # noqa: E402
 from fastmcp.tools.base import ToolResult  # noqa: E402
 from mcp.shared.exceptions import MCPError  # noqa: E402
-from mcp_types import ImageContent, TextContent  # noqa: E402
+from mcp_types import (  # noqa: E402
+    EmbeddedResource,
+    ImageContent,
+    TextContent,
+    TextResourceContents,
+)
 
 from ctxtual.mcp import Offload, create_offload_proxy, expand_env  # noqa: E402
 from ctxtual.mcp import proxy as proxy_module  # noqa: E402
+from ctxtual.mcp.offload import PAGE_CHARS  # noqa: E402
 from ctxtual.mcp.preview import (  # noqa: E402
     PREVIEW_MAX_CHARS,
     build_preview,
@@ -134,7 +140,7 @@ def _server(**offload_kwargs) -> FastMCP:
     @mcp.tool
     def essays() -> list[dict]:
         """Items with a long field."""
-        return [{"id": i, "author": {"name": "Ada"}, "body": f"essay {i} " + "w" * 11_000}
+        return [{"id": i, "author": {"name": "Ada"}, "body": f"essay {i} " + "w" * 25_000}
                 for i in range(3)]
 
     @mcp.tool
@@ -165,6 +171,8 @@ def _server(**offload_kwargs) -> FastMCP:
         """Fails with a long message."""
         raise ValueError("start " + "e" * 30_000 + " end")
 
+    # The tests' payloads are sized against this threshold, not the default.
+    offload_kwargs.setdefault("threshold", 8_000)
     mcp.add_middleware(Offload(**offload_kwargs))
     return mcp
 
@@ -190,14 +198,19 @@ class TestNotice:
         async with Client(_server()) as c:
             notice = json.loads(text(await c.call_tool("doc", {})))
             assert notice["chars"] > 40_000
-            assert "pages of 4,000 chars" in notice["how_to_explore"]
+            assert f"pages of {PAGE_CHARS:,} chars" in notice["how_to_explore"]
 
-    async def test_small_results_and_non_text_pass_through(self):
+    async def test_small_results_pass_through(self):
         async with Client(_server()) as c:
             r = await c.call_tool("tiny", {})
             assert json.loads(text(r)) == {"ok": True} and r.structured_content == {"ok": True}
+
+    async def test_text_is_stored_and_images_kept(self):
+        async with Client(_server()) as c:
             r = await c.call_tool("image", {})
             assert [b.type for b in r.content] == ["text", "image"]
+            notice = json.loads(r.content[0].text)
+            assert notice["chars"] == 20_000 and r.content[1].data == "iVBORw0KGgo="
 
     async def test_payload_shapes(self):
         async with Client(_server()) as c:
@@ -207,7 +220,9 @@ class TestNotice:
             listing = json.loads(text(await c.call_tool("listing", {})))
             assert listing["preview"].startswith("[FILE] report_0.txt\n")
             config = json.loads(text(await c.call_tool("config", {})))
-            assert "chars" in config  # an object without a dominant list → text
+            # an object keyed by name → a list of its entries
+            assert config["items"] == 200 and config["fields"]["key"] == "string"
+            assert "200 keys" in config["note"]
             logs = json.loads(text(await c.call_tool("jsonl", {})))
             assert logs["items"] == 400 and logs["fields"]["level"] == "string"
 
@@ -263,7 +278,7 @@ class TestTools:
             assert all(tools[n].annotations.read_only_hint for n in injected)
             size = sum(len(json.dumps({"d": tools[n].description, "s": tools[n].input_schema}))
                        for n in injected)
-            assert size < 4_000  # every request carries these definitions
+            assert size < 6_000  # every request carries these definitions (cached)
             for n in injected:
                 assert "Args:" not in tools[n].description  # no duplicated parameter docs
             assert tools["rows"].output_schema is None
@@ -283,7 +298,7 @@ class TestTools:
             found = json.loads(text(await c.call_tool(
                 "result_search", {"result_id": rid, "query": "NEEDLE"})))
             assert found["returned"] == 1 and "NEEDLE" in found["passages"][0]["text"]
-            assert found["passages"][0]["page"] == found["passages"][0]["offset"] // 4000
+            assert found["passages"][0]["page"] == found["passages"][0]["offset"] // PAGE_CHARS
 
     async def test_read_pages_items_and_long_fields(self):
         async with Client(_server()) as c:
@@ -302,7 +317,7 @@ class TestTools:
             assert len(body) < 500 and "result_read(result_id, index=0, field='body')" in body
             full = json.loads(text(await c.call_tool(
                 "result_read", {"result_id": rid, "index": 0, "field": "body", "page": 1})))
-            assert full["pages"] == 3 and full["page"] == 1 and len(full["text"]) == 4000
+            assert full["pages"] == 3 and full["page"] == 1 and len(full["text"]) == PAGE_CHARS
             nested = json.loads(text(await c.call_tool(
                 "result_read", {"result_id": rid, "index": 0, "field": "author.name"})))
             assert nested["value"] == "Ada"
@@ -450,8 +465,8 @@ class TestRedesignReview:
 
     async def test_dotted_keys_lists_and_nulls_are_readable(self):
         def odd() -> list:
-            return [{"a.b": "v" * 3000, "deep": {"x.y": {"z": "w" * 3000}}, "n": None},
-                    ["s" * 10_000 + "END", 0], "t" * 10_000] * 3
+            return [{"a.b": "v" * 5000, "deep": {"x.y": {"z": "w" * 5000}}, "n": None},
+                    ["s" * 25_000 + "END", 0], "t" * 25_000] * 3
 
         async with Client(self._mcp(odd)) as c:
             rid = json.loads(text(await c.call_tool("odd", {})))["result_id"]
@@ -537,10 +552,20 @@ class TestRedesignReview:
         assert out[0] == "0: My Project" and len(out) > 3
         assert _outline("# Setup\n## Advanced Setup\n## Other\n") == [
             "0: Setup", "  0: Advanced Setup", "  0: Other"]
-        fenced = "```\n~~~\n# not\n```\n# A\n# B\n# C\n"
+        fenced = "```\n~~~\n# not\n```\n# A\n\n# B\n\n# C\n"
         assert _outline(fenced) == ["0: A", "0: B", "0: C"]
         indented = "    ```\n# A\n# B\n## F#\n"
         assert _outline(indented) == ["0: A", "0: B", "  0: F#"]
+
+    def test_outline_of_comments_and_code(self):
+        from ctxtual.mcp.offload import _outline
+
+        yaml = "# Release: push a tag\n# and this workflow\n# builds it.\nname: x\n# one\n"
+        assert _outline(yaml) is None  # a comment block is not headings
+        code = "".join(f"# helper {i}\n\ndef f{i}(x):\n    return x\n\n" for i in range(5))
+        code += "class K:\n    def m(self):\n        pass\n"
+        assert _outline(code) == [f"0: def f{i}(x)" for i in range(5)] + [
+            "0: class K", "  0: def m(self)"]
 
     def test_examples_skip_dotted_field_names(self):
         from ctxtual.mcp.offload import _example_steps
@@ -561,7 +586,7 @@ class TestRedesignReview:
 
     async def test_read_on_text_rejects_list_arguments(self):
         async with Client(_server()) as c:
-            rid = json.loads(text(await c.call_tool("config", {})))["result_id"]
+            rid = json.loads(text(await c.call_tool("doc", {})))["result_id"]
             r = await c.call_tool("result_read", {"result_id": rid, "index": 1},
                                   raise_on_error=False)
             assert r.is_error and "is a text" in json.loads(text(r))["error"]
@@ -720,6 +745,203 @@ class TestReviewRegressions:
 
         asyncio.run(run())
         assert db.stat().st_mode & 0o077 == 0
+
+
+class TestRealWorldShapes:
+    """Result shapes popular servers produce (found by probing, 0.4.1)."""
+
+    def _mcp(self, tool_fn, **offload):
+        mcp = FastMCP("t")
+        mcp.tool(tool_fn)
+        offload.setdefault("threshold", 8_000)
+        mcp.add_middleware(Offload(**offload))
+        return mcp
+
+    MD = "\n".join(f"## Part {i}\n" + "lorem ipsum " * 150 for i in range(20))
+    ISSUES = [{"number": i, "state": ["open", "closed"][i % 2], "title": f"Issue {i}",
+               "body": "filler text " * 200 + (" segfault in parser" if i == 7 else "")}
+              for i in range(40)]
+
+    async def test_object_with_one_long_text_is_a_document(self):
+        def scrape() -> dict:
+            return {"url": "https://example.com", "title": "Doc",
+                    "markdown": TestRealWorldShapes.MD}
+
+        async with Client(self._mcp(scrape)) as c:
+            notice = json.loads(text(await c.call_tool("scrape", {})))
+            assert notice["chars"] == len(self.MD) and notice["outline"][0] == "0: Part 0"
+            assert notice["other_fields"] == {"text_field": "markdown",
+                                              "url": "https://example.com", "title": "Doc"}
+            page = json.loads(text(await c.call_tool(
+                "result_read", {"result_id": notice["result_id"]})))
+            assert page["text"].startswith("## Part 0\n")  # real newlines, not \\n
+
+    async def test_python_repr_output_is_a_list(self):
+        def rows() -> str:
+            return str([{"id": i, "name": f"row {i}", "ok": True, "v": None} for i in range(400)])
+
+        async with Client(self._mcp(rows)) as c:
+            notice = json.loads(text(await c.call_tool("rows", {})))
+            assert notice["items"] == 400 and notice["preview"][0]["v"] is None
+        assert parse_text_payload("[__import__('os')]") == "[__import__('os')]"
+
+    async def test_embedded_text_resource_is_stored(self):
+        def get_file() -> ToolResult:
+            return ToolResult(content=[EmbeddedResource(type="resource", resource=TextResourceContents(
+                uri="file:///repo/README.md", mimeType="text/markdown", text=TestRealWorldShapes.MD))])
+
+        async with Client(self._mcp(get_file)) as c:
+            r = await c.call_tool("get_file", {})
+            notice = json.loads(text(r))
+            assert [b.type for b in r.content] == ["text"]
+            assert notice["uri"] == "file:///repo/README.md" and notice["chars"] == len(self.MD)
+
+    async def test_one_json_block_per_item_is_a_list(self):
+        def issues() -> ToolResult:
+            return ToolResult(content=[TextContent(type="text", text=json.dumps(i))
+                                       for i in TestRealWorldShapes.ISSUES])
+
+        async with Client(self._mcp(issues)) as c:
+            notice = json.loads(text(await c.call_tool("issues", {})))
+            assert notice["items"] == 40 and "state" in notice["fields"]
+            # the example sorts by a measure, not by the issue number
+            assert '"number"' not in notice["how_to_explore"]
+
+    async def test_summary_next_to_structured_data_is_kept(self):
+        def find() -> ToolResult:
+            return ToolResult(content=[TextContent(type="text", text="Found 40 issues; 2 block the release.")],
+                              structured_content={"result": TestRealWorldShapes.ISSUES})
+
+        async with Client(self._mcp(find)) as c:
+            notice = json.loads(text(await c.call_tool("find", {})))
+            assert notice["message"] == "Found 40 issues; 2 block the release." and notice["items"] == 40
+
+    async def test_search_hit_shows_where_the_words_are(self):
+        def issues() -> list[dict]:
+            return TestRealWorldShapes.ISSUES
+
+        async with Client(self._mcp(issues)) as c:
+            rid = json.loads(text(await c.call_tool("issues", {})))["result_id"]
+            found = json.loads(text(await c.call_tool(
+                "result_search", {"result_id": rid, "query": "segfault parser"})))
+            hit = found["hits"][0]
+            assert hit["index"] == 7 and hit["match"]["field"] == "body"
+            assert "segfault in parser" in hit["match"]["text"]
+            plain = json.loads(text(await c.call_tool(
+                "result_search", {"result_id": rid, "query": "Issue 3"})))
+            assert "match" not in plain["hits"][0]  # visible in the hit already
+
+    async def test_list_of_strings_suggests_no_query(self):
+        def lines() -> list[str]:
+            return [f"line {i}: " + "word " * 40 for i in range(300)]
+
+        async with Client(self._mcp(lines)) as c:
+            notice = json.loads(text(await c.call_tool("lines", {})))
+            assert "result_query" not in notice["how_to_explore"]
+
+    async def test_map_of_counts_is_a_list_of_entries(self):
+        def counts() -> dict:
+            return {f"word{i}": i for i in range(2_000)}
+
+        async with Client(self._mcp(counts)) as c:
+            notice = json.loads(text(await c.call_tool("counts", {})))
+            assert notice["items"] == 2_000 and notice["preview"][1] == {"key": "word1", "value": 1}
+            top = json.loads(text(await c.call_tool("result_query", {
+                "result_id": notice["result_id"],
+                "steps": [{"sort": {"field": "value", "order": "desc"}}, {"limit": 1}]})))
+            assert top["rows"][0]["row"] == {"key": "word1999", "value": 1999}
+
+    async def test_review_findings(self):
+        """Second review of 0.5.0: each case was a confirmed defect."""
+        issues = [{"id": i, "title": f"widgets {i}", "body": "b" * 120} for i in range(300)]
+
+        def pages() -> ToolResult:  # a list and a cursor in separate blocks
+            return ToolResult(content=[TextContent(type="text", text=json.dumps({"items": issues})),
+                                       TextContent(type="text", text=json.dumps({"next_cursor": "c"}))])
+
+        def chunked() -> ToolResult:  # one JSON document cut into blocks
+            doc = json.dumps(issues)
+            return ToolResult(content=[TextContent(type="text", text=doc[i:i + 7_000])
+                                       for i in range(0, len(doc), 7_000)])
+
+        def scrape() -> dict:  # much besides the text
+            return {"url": "u", "metadata": {"description": "D" * 3000, "tail": "IMPORTANT"},
+                    "markdown": "word " * 8000}
+
+        def record() -> dict:  # many keys, but one holds most of the data
+            return {**{f"f{i}": "v" * 900 for i in range(24)}, "rows": issues}
+
+        def coll() -> dict:
+            return {f"k{i}": {"key": "inner", "_key": "x", "v": "z" * 900} for i in range(25)}
+
+        def wide() -> list[dict]:
+            return [{f"f{j}": "x" * 5000 for j in range(7)} for _ in range(3)]
+
+        def nested() -> list[dict]:
+            return [{"id": i, "tags": [f"t{j}" for j in range(500)]} for i in range(10)]
+
+        def int_keys() -> str:
+            return str([{1: "x" * 400 + " needle", 2: None}] * 60)
+
+        def summary() -> ToolResult:
+            return ToolResult(content=[TextContent(type="text", text="Summary. " * 400)],
+                              structured_content={"result": issues * 3})
+
+        def empty_resource() -> ToolResult:
+            return ToolResult(content=[
+                TextContent(type="text", text="plain " * 5000),
+                EmbeddedResource(type="resource", resource=TextResourceContents(
+                    uri="file:///empty.txt", text=""))])
+
+        mcp = FastMCP("t")
+        for fn in (pages, chunked, scrape, record, coll, wide, nested, int_keys, summary,
+                   empty_resource):
+            mcp.tool(fn)
+        mcp.add_middleware(Offload())
+        async with Client(mcp) as c:
+            async def notice(name):
+                return json.loads(text(await c.call_tool(name, {})))
+
+            async def call(tool, **args):
+                r = await c.call_tool(tool, args, raise_on_error=False)
+                assert not r.is_error, text(r)
+                return json.loads(text(r))
+
+            assert (await notice("pages"))["items"] == 300
+            assert (await notice("chunked"))["items"] == 300
+            n = await notice("scrape")
+            found = await call("result_search", result_id=n["result_id"], query="IMPORTANT")
+            assert found["returned"] == 1  # the other fields stay searchable
+            n = await notice("record")
+            assert "chars" in n  # not 25 entries with one huge one
+            await call("result_search", result_id=n["result_id"], query="widgets 123")
+            n = await notice("coll")
+            item = (await call("result_read", result_id=n["result_id"], index=3))["item"]
+            assert "k3" in item.values() and item["key"] == "inner" and item["_key"] == "x"
+            n = await notice("wide")
+            await call("result_read", result_id=n["result_id"], index=0)  # fits the budget
+            n = await notice("nested")
+            hit = (await call("result_read", result_id=n["result_id"], index=0))["item"]
+            assert len(hit["tags"]) < 500 and "field='tags'" in hit["tags"][-1]
+            n = await notice("int_keys")
+            assert n["items"] == 60
+            value = await call("result_read", result_id=n["result_id"], index=0, field="1")
+            assert value["value"].endswith("needle")
+            n = await notice("summary")
+            assert "of the message omitted" in n["message"] and "error" not in n["message"]
+            assert "uri" not in await notice("empty_resource")
+
+        cut_json = json.dumps(issues)[:15_000]  # cut-off JSON: not tried as Python
+        started = time.perf_counter()
+        assert parse_text_payload(cut_json) == cut_json
+        assert time.perf_counter() - started < 0.5
+
+    async def test_default_threshold_leaves_medium_results_inline(self):
+        def medium() -> str:
+            return "x" * 15_000
+
+        async with Client(self._mcp(medium, threshold=Offload().threshold)) as c:
+            assert len(text(await c.call_tool("medium", {}))) == 15_000
 
 
 class TestWrappedServerMetadata:
