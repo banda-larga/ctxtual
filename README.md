@@ -31,7 +31,8 @@ uvx --from 'ctxtual[mcp]' ctxtual install claude-desktop   # or: cursor, vscode,
 
 Restart the client. That's it. `ctxtual status` shows what is wrapped,
 `--dry-run` shows the changes first, and you can pass server names to wrap
-only some of them.
+only some of them. (To type plain `ctxtual …` instead of the `uvx` prefix,
+install it once with `uv tool install 'ctxtual[mcp]'`.)
 
 Adding a new server, already wrapped:
 
@@ -41,9 +42,10 @@ uvx --from 'ctxtual[mcp]' ctxtual add cursor github https://api.githubcopilot.co
 uvx --from 'ctxtual[mcp]' ctxtual add claude-desktop fs -- npx -y @modelcontextprotocol/server-filesystem ~/docs
 ```
 
-`--print` prints the config snippet instead (and a one-click install link
-for Cursor and VS Code). Or write the entry yourself — it is a normal stdio
-server that runs `ctxtual wrap`:
+`add --print …` prints the config snippet instead of writing it, plus a
+one-click install link for Cursor and VS Code (ctxtual's own options go
+before `--`; everything after it is the server's command). Or write the entry
+yourself — it is a normal stdio server that runs `ctxtual wrap`:
 
 ```json
 {
@@ -56,9 +58,9 @@ server that runs `ctxtual wrap`:
 }
 ```
 
-**What the model sees.** A DeepWiki page for the MCP Python SDK is 519,810
-characters (~130k tokens). Through ctxtual the model gets a 1,455-character
-notice:
+**What the model sees.** DeepWiki's page for the MCP Python SDK is 519,810
+characters (roughly 130k tokens). Through ctxtual the model gets a
+1,455-character notice:
 
 ```json
 {
@@ -70,15 +72,16 @@ notice:
 }
 ```
 
-and finds what it needs with `result_search_in_text` (about 1,000
-characters per search). Lists get `fields`, a 3-item preview and
-`result_search` / `result_pipe` (filter, sort, group, count in one call).
+and then calls `result_search_in_text`, which returns only the matching
+passages. Lists get `fields`, a 3-item preview, and `result_search` /
+`result_pipe` (filter, sort, group and count in one call).
 
-**Which clients benefit most.** Clients without a filesystem for the model —
-Claude Desktop and claude.ai connectors, ChatGPT, Cursor, VS Code, custom
-agent loops — otherwise truncate or reject big results. Claude Code already
-saves results over 50,000 characters to files; ctxtual adds a lower
-threshold and query tools there.
+**Where it helps most.** Most MCP clients put a tool result into the
+model's context as it is, or cut it off at a limit (Codex, for example, has a
+per-tool token budget). That is where ctxtual makes the difference, and in
+agent loops you build yourself. Claude Code already saves results over 50,000
+characters to files; ctxtual adds a lower threshold and query tools there. Web-only clients (claude.ai in the browser, ChatGPT) can't run
+local commands, so they need a hosted wrapper: see the docs.
 
 Details — every option, OAuth, remote/hosted use, security:
 **[docs/mcp.md](docs/mcp.md)**.
@@ -459,10 +462,10 @@ def detect_anomalies(workspace_id: str, std_threshold: float = 2.0) -> dict:
 **`SQLiteStore(path)`** — persistent, standard-library `sqlite3`, WAL mode,
 one connection per thread (connections of exited threads are closed). Every
 write runs in a transaction that is rolled back on error. List items are
-stored one row each, so paging,
-`filter_by` and `sort_by` run as SQL. Search uses an FTS5 index. Databases
-created by older versions are migrated on open. `":memory:"` gives the store
-a private in-memory database shared by its threads.
+stored one row each, so paging, `filter_by` and `sort_by` run as SQL. Search
+uses an FTS5 index. Databases created by older versions are migrated on
+open. `":memory:"` gives the store a private in-memory database shared by
+its threads.
 
 **Custom backends** subclass `BaseStore` and implement `init_workspace`,
 `drop_workspace`, `get_meta`, `list_workspaces`, `set`, `get` and
@@ -564,8 +567,9 @@ Async variants: `ahandle_tool_calls`, `ahandle_tool_use`.
 `examples/` has runnable scripts (`uv run python examples/01_quickstart.py`)
 and notebooks: quickstart, a RAG support agent, multi-step data pipelines,
 custom tools, pipelines, SQLite persistence and mutations, error handling,
-multi-agent collaboration, OpenAI and Anthropic agent loops (these need API
-keys), and a concurrent server.
+multi-agent collaboration, OpenAI and Anthropic agent loops (simulated when
+no API key is set), a concurrent server, and the `Offload` middleware on a
+FastMCP server (`uv run --extra mcp python examples/12_mcp_offload.py`).
 
 ## Development
 
