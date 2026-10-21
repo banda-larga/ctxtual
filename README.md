@@ -60,21 +60,32 @@ yourself — it is a normal stdio server that runs `ctxtual wrap`:
 
 **What the model sees.** DeepWiki's page for the MCP Python SDK is 519,810
 characters (roughly 130k tokens). Through ctxtual the model gets a
-1,455-character notice:
+1,876-character notice, including an outline that says where each section
+starts:
 
 ```json
 {
-  "stored_result": "read_wiki_contents_83afe435931d",
+  "result_id": "read_wiki_contents_844038da8b55",
   "tool": "read_wiki_contents",
   "chars": 519810,
+  "outline": ["0: Page: Overview", "1: Page: Installation & Dependencies",
+              "3: Page: Key Concepts & Architecture", "…",
+              "48: Page: StreamableHTTP Transport", "…"],
   "preview": "# Page: Overview …",
-  "how_to_explore": "Too large to show in full (519,810 chars); stored as workspace 'read_wiki_contents_83afe435931d'. Explore it instead of calling read_wiki_contents again: result_search_in_text(workspace_id, query) finds passages; result_read_page(workspace_id, page) reads it page by page. Kept for 1 hour."
+  "how_to_explore": "read_wiki_contents returned 519,810 chars, too long to show in full; the text is stored. Use result_search(result_id, query) to find passages; result_read(result_id, page) to read it (130 pages of 4,000 chars). Calling read_wiki_contents again with narrower arguments also works."
 }
 ```
 
-and then calls `result_search_in_text`, which returns only the matching
-passages. Lists get `fields`, a 3-item preview, and `result_search` /
-`result_pipe` (filter, sort, group and count in one call).
+It then reads page 48, or searches, instead of taking in all 130 pages.
+Lists get their field types, a preview, and a query example built from
+their real fields, e.g. `[{"filter": {"state": "open"}}, {"sort": {"field":
+"comments", "order": "desc"}}, {"limit": 10}]`.
+
+Four tools are added, about 3,600 characters of definitions in total:
+`result_search` (items or passages), `result_read` (pages, single items, long
+fields), `result_query` (filter, sort, group, count in one call) and
+`result_list`. The wrapped server's own instructions are kept; a short
+explanation of stored results is appended to them.
 
 **Where it helps most.** Most MCP clients put a tool result into the
 model's context as it is, or cut it off at a limit (Codex, for example, has a
@@ -95,6 +106,11 @@ from ctxtual.mcp import Offload
 mcp = FastMCP("my-server")
 mcp.add_middleware(Offload())          # results > 8,000 chars are stored
 ```
+
+Options: `threshold`, per-tool `thresholds`, `include`/`exclude`, `ttl`
+(idle time before a stored result is dropped), `max_results`,
+`max_total_chars`, `tools` (which of the four to add), `prefix`, `store`
+and more — see [docs/mcp.md](docs/mcp.md#on-your-own-fastmcp-server).
 
 ---
 

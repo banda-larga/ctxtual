@@ -22,14 +22,6 @@ from fastmcp.server.providers.proxy import FastMCPProxy, ProxyClient
 
 from ctxtual.mcp.offload import Offload
 
-INSTRUCTIONS = (
-    "Large tool results are stored instead of returned in full. When a tool "
-    "answers with a 'stored_result' notice, use the result_* tools with that "
-    "workspace_id to search, filter, aggregate or page through the data "
-    "rather than calling the original tool again. result_list shows what is "
-    "stored."
-)
-
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 #: Largest single upstream message (one tool result) accepted over HTTP.
@@ -192,8 +184,10 @@ def create_offload_proxy(
     proxy = FastMCPProxy(
         client_factory=factory,
         name=name or "ctxtual",
-        instructions=INSTRUCTIONS,
         auth=auth,
+        # Clients see the wrapped server's name and version unless a name
+        # is given, and (because the proxy sets none) its instructions.
+        identity="proxy" if name else "upstream",
         # Surface upstream failures (e.g. a wrong URL or transport) instead
         # of serving an empty tool list.
         provider_error_strategy="raise",
@@ -203,7 +197,9 @@ def create_offload_proxy(
     elif offload._upstream_tool_names is None:
         offload._upstream_tool_names = upstream_tool_names
         offload._clash_checked = False
-    proxy.add_middleware(offload)
+    # Outermost, so it appends its explanation to the upstream instructions
+    # the proxy's metadata middleware has already forwarded.
+    proxy.middleware.insert(0, offload)
     return proxy
 
 

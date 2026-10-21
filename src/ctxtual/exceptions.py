@@ -38,10 +38,10 @@ class WorkspaceNotFoundError(CtxtualError):
         if self.available:
             d["available_workspaces"] = self.available[:20]
         d["suggested_action"] = (
-            "Call the producer tool to create the workspace first, "
-            "or use one of the available workspace IDs listed above."
+            "Use one of the available workspace ids listed above, or call the "
+            "tool that returned the data again."
             if self.available
-            else "Call the producer tool to create a workspace first."
+            else "Call the tool that returns this data first; it gives a workspace_id."
         )
         return d
 
@@ -66,7 +66,7 @@ class WorkspaceExpiredError(CtxtualError):
             d["suggested_action"] = f"Re-run '{self.producer_fn}' to refresh the data."
         else:
             d["suggested_action"] = (
-                "Re-run the producer tool that created this workspace to refresh it."
+                "Call the tool that returned this data again to get a fresh copy."
             )
         return d
 
@@ -105,12 +105,12 @@ class WorkspaceTypeMismatchError(CtxtualError):
             d["workspaces_of_correct_type"] = self.matching_workspaces[:20]
             d["suggested_action"] = (
                 f"Use one of the '{self.expected}' workspaces listed above, "
-                f"or call the appropriate producer to create one."
+                f"or call the tool that returns that data."
             )
         else:
             d["suggested_action"] = (
                 f"This tool works with '{self.expected}' workspaces. "
-                f"Call the producer that creates '{self.expected}' workspaces first."
+                f"Call the tool that returns '{self.expected}' data first."
             )
         return d
 

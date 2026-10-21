@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.4.0
+
+The MCP interface, redesigned from the model's side: fewer tools, one
+vocabulary, and the missing pieces an agent gets stuck on.
+
+### Changed (breaking for the MCP tools)
+
+- Four tools instead of seven: `result_search` (items or passages),
+  `result_read` (pages, one item, one long field page by page),
+  `result_query` (the former `result_pipe`) and `result_list`. The model no
+  longer has to pick a tool by the result's shape.
+- One name for the handle: the notice and every tool use `result_id`
+  (was `stored_result` / `workspace_id`). Notice keys: `items`/`chars`
+  (was `item_count`).
+- `ttl` is now an idle timeout: a stored result is dropped after `ttl`
+  seconds *without use*. Eviction also caps the total size
+  (`max_total_chars`) and count (`max_results`, default 200).
+
+### Added
+
+- Search hits carry the item's `index`; `fields=[...]` keeps only some fields
+  in search, read and listings.
+- Long values in listings are cut with the exact call to read them in full;
+  `result_read(result_id, index=N, field="body", page=…)` pages through them
+  (dot paths allowed).
+- Notices include a query example built from the result's real fields, and,
+  for markdown texts, an `outline` of headings with the page each starts on.
+- Text search ranks passages by how many query words they contain when the
+  exact phrase doesn't occur.
+- JSON Lines output is stored as a list (filterable, countable).
+- `Offload(thresholds={glob: chars})` / `--tool-threshold`, `tools=` /
+  `--tools`, `max_results` / `--max-results`, `max_total_chars`,
+  `max_output_chars`, `instructions=`.
+
+### Fixed
+
+- Wrapping a server replaced its instructions with ctxtual's; they are now
+  kept, with a short explanation of stored results appended. Clients see the
+  wrapped server's name instead of "ctxtual".
+- Tool definitions are about 55% smaller (3,600 characters instead of
+  8,000): the explanation lives once in the instructions, and parameter
+  descriptions are no longer repeated in the tool description.
+- Error messages no longer use library jargon ("producer tool").
+- Wrong arguments to the result tools return a fixable error instead of a
+  raw validation message; `steps` may be a single operation, `fields` a
+  single name, numbers may arrive as strings.
+- Query rows that are items of the stored list carry their `index`; large
+  rows are shown fewer at a time instead of failing.
+- Eviction limits apply per authenticated user; the result just stored is
+  never evicted.
+- `--name` is respected again for wrapped servers.
+
 ## 0.3.1
 
 ### Fixed

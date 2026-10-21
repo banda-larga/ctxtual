@@ -143,7 +143,8 @@ def _wrap_options(p: argparse.ArgumentParser, *, for_install: bool = False) -> N
     g.add_argument("--threshold", type=int, default=None if for_install else 8_000,
                    help="offload results longer than this many characters (default 8000)")
     g.add_argument("--ttl", type=float, default=None if for_install else 3600.0,
-                   help="seconds to keep stored results; 0 = until exit (default 3600)")
+                   help="drop a stored result after this many seconds without use; "
+                   "0 = keep until evicted (default 3600)")
     if for_install:
         return
     g.add_argument("--store", metavar="PATH",
@@ -152,9 +153,15 @@ def _wrap_options(p: argparse.ArgumentParser, *, for_install: bool = False) -> N
                    help="only offload these tools (repeatable)")
     g.add_argument("--exclude", action="append", default=[], metavar="GLOB",
                    help="never offload these tools (repeatable)")
+    g.add_argument("--tool-threshold", action="append", default=[], metavar="GLOB=CHARS",
+                   help="per-tool threshold, e.g. get_file=40000 (repeatable)")
+    g.add_argument("--tools", default="search,read,query,list",
+                   help="injected tools to expose (default: search,read,query,list)")
+    g.add_argument("--max-results", type=int, default=200,
+                   help="most stored results kept; least recently used go first (default 200)")
     g.add_argument("--prefix", default="result", help="prefix of the injected tools")
     g.add_argument("--allow-regex", action="store_true",
-                   help="allow $regex in result_pipe filters (runs model-written patterns)")
+                   help="allow $regex in result_query filters (runs model-written patterns)")
 
 
 def _client_options(p: argparse.ArgumentParser) -> None:
@@ -215,6 +222,8 @@ def _cmd_wrap(args: argparse.Namespace) -> int:
 
     if args.sse and not isinstance(target, str):
         raise InstallError("--sse applies to URLs only")
+    if args.max_results < 1:
+        raise InstallError("--max-results must be at least 1")
     proxy = create_offload_proxy(
         target,
         sse=args.sse,
@@ -225,6 +234,9 @@ def _cmd_wrap(args: argparse.Namespace) -> int:
         cwd=args.cwd,
         name=args.name,
         threshold=args.threshold,
+        thresholds=dict(_tool_threshold(t) for t in args.tool_threshold),
+        tools=_tool_names(args.tools),
+        max_results=args.max_results,
         ttl=args.ttl or None,
         store=store,
         include=args.include,
@@ -277,6 +289,27 @@ def _parse_headers(raw_headers: Sequence[str]) -> dict[str, str]:
             raise InstallError(f"bad --header {raw!r}; use 'Name: value'")
         headers[name] = value.strip()
     return headers
+
+
+def _tool_threshold(raw: str) -> tuple[str, int]:
+    pattern, _, value = raw.partition("=")
+    try:
+        chars = int(value)
+    except ValueError:
+        chars = 0
+    if not pattern.strip() or chars < 1:
+        raise InstallError(f"bad --tool-threshold {raw!r}; use GLOB=CHARS, e.g. get_file=40000")
+    return pattern.strip(), chars
+
+
+def _tool_names(raw: str) -> list[str]:
+    from ctxtual.mcp.offload import TOOLS
+
+    names = [t.strip().lower() for t in raw.split(",") if t.strip()]
+    unknown = [t for t in names if t not in TOOLS]
+    if unknown or not names:
+        raise InstallError(f"bad --tools {raw!r}; use a comma-separated subset of {','.join(TOOLS)}")
+    return names
 
 
 def _kv(raw: str, flag: str) -> tuple[str, str]:

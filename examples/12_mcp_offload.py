@@ -2,7 +2,8 @@
 12 — Offload large results from an MCP server (FastMCP middleware).
 
 One line on your own server: results above 8,000 characters are stored and
-the model gets a notice plus result_* tools to explore them.
+the model gets a notice plus four result_* tools (search, read, query, list)
+to explore them.
 
 Requires the extra:  pip install "ctxtual[mcp]"
 Run:                 uv run --extra mcp python examples/12_mcp_offload.py
@@ -64,12 +65,13 @@ async def main() -> None:
         notice = json.loads(text(big))
         raw = len(json.dumps(make_orders(5000)))
         print(f"\nlist_orders → {len(text(big)):,}-char notice instead of ~{raw:,} chars")
-        print(json.dumps({k: notice[k] for k in ("stored_result", "item_count", "fields")}, indent=2))
-        ws = notice["stored_result"]
+        print(json.dumps({k: notice[k] for k in ("result_id", "items", "fields")}, indent=2))
+        print("how_to_explore:", notice["how_to_explore"])
+        result_id = notice["result_id"]
 
         # What a model would do next: one compound query instead of reading 5,000 rows.
-        refunds = await client.call_tool("result_pipe", {
-            "workspace_id": ws,
+        refunds = await client.call_tool("result_query", {
+            "result_id": result_id,
             "steps": [
                 {"filter": {"status": "refunded"}},
                 {"group_by": {"field": "region",
@@ -78,7 +80,7 @@ async def main() -> None:
             ],
         })
         print(f"\nrefunds by region ({len(text(refunds))} chars):")
-        for row in json.loads(text(refunds))["items"]:
+        for row in json.loads(text(refunds))["rows"]:
             print(f"  {row['region']:<5} {row['orders']:>4} orders  {row['total']:>10,.2f}")
 
 

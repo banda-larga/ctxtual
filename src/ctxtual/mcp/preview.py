@@ -9,7 +9,7 @@ import json
 from typing import Any
 
 #: Characters a single string value may keep inside a preview.
-PREVIEW_STRING_CHARS = 200
+PREVIEW_STRING_CHARS = 120
 #: Elements a nested list may keep inside a preview.
 PREVIEW_LIST_ITEMS = 5
 #: Upper bound on the JSON size of the whole preview.
@@ -19,13 +19,25 @@ SCHEMA_MAX_FIELDS = 50
 
 
 def parse_text_payload(text: str) -> Any:
-    """Return parsed JSON if *text* is a JSON document, else the text itself."""
+    """
+    Parse *text* into data where it is unambiguous: a JSON document, or
+    JSON Lines (one JSON object per line, as many logs and exports are).
+    Anything else is returned as text.
+    """
     stripped = text.strip()
     if stripped[:1] in ("[", "{"):
         try:
             return json.loads(stripped)
         except ValueError:
             pass
+        lines = [line for line in stripped.splitlines() if line.strip()]
+        if len(lines) > 1 and all(line.lstrip().startswith("{") for line in lines):
+            try:
+                rows = [json.loads(line) for line in lines]
+            except ValueError:
+                return text
+            if all(isinstance(row, dict) for row in rows):
+                return rows
     return text
 
 
@@ -103,3 +115,66 @@ def _truncate_json(value: Any) -> Any:
     if len(encoded) <= PREVIEW_MAX_CHARS:
         return value
     return encoded[:PREVIEW_MAX_CHARS] + "…"
+
+
+def cut_strings(
+    value: Any, limit: int, pointer: Any = None, path: str = ""
+) -> Any:
+    """
+    Copy of *value* with strings longer than *limit* cut.
+
+    ``pointer(path, length)`` returns the note appended to a cut string (how
+    to read the rest); *path* is the value's path inside an item, as
+    :func:`resolve_path` reads it (``""`` for the item itself).
+    """
+    if isinstance(value, str):
+        if len(value) <= limit:
+            return value
+        note = pointer(path, len(value)) if pointer else f"{len(value):,} chars in total"
+        return f"{value[:limit]}… [{note}]"
+    if isinstance(value, dict):
+        return {
+            k: cut_strings(v, limit, pointer, _join(path, str(k)))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [cut_strings(v, limit, pointer, _join(path, str(i))) for i, v in enumerate(value)]
+    return value
+
+
+def _join(path: str, key: str) -> str:
+    return f"{path}.{key}" if path else key
+
+
+#: Returned by :func:`resolve_path` when the path does not exist.
+MISSING = object()
+
+
+def resolve_path(value: Any, path: str) -> Any:
+    """
+    Follow a dotted *path* (``"author.name"``, ``"comments.0.body"``) into
+    *value*.  Keys that themselves contain dots (``"a.b"``) are matched
+    greedily against the real keys.  Returns :data:`MISSING` if the path
+    doesn't exist (a key that holds ``None`` returns ``None``).
+    """
+    if path == "":
+        return value
+    parts = path.split(".")
+
+    def walk(node: Any, i: int) -> Any:
+        if i == len(parts):
+            return node
+        if isinstance(node, dict):
+            for j in range(len(parts), i, -1):  # longest key first
+                key = ".".join(parts[i:j])
+                if key in node:
+                    found = walk(node[key], j)
+                    if found is not MISSING:
+                        return found
+            return MISSING
+        if isinstance(node, list) and parts[i].isdigit():
+            index = int(parts[i])
+            return walk(node[index], i + 1) if index < len(node) else MISSING
+        return MISSING
+
+    return walk(value, 0)

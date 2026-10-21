@@ -2,20 +2,37 @@
 
 ctxtual sits between an AI client and an MCP server. Results up to a
 threshold (8,000 characters by default) pass through unchanged. Larger ones
-are stored, and the model receives a notice with a preview, the inferred
-fields and a `workspace_id`, plus seven read-only tools to explore the stored
-data:
+are stored, and the model receives a **stored-result notice** instead:
+
+- `result_id`, the tool, and the size (`items` for a list, `chars` for a text)
+- for lists: `fields` (name → type), a 3-item `preview`, and a query example
+  built from the result's real fields
+- for markdown texts: an `outline` of the headings with the page each starts on
+- `how_to_explore`: which tool to call next
+
+and four read-only tools that work on stored results:
 
 | Tool | Use |
 |---|---|
-| `result_search` | Ranked search over a stored list |
-| `result_pipe` | Filter, sort, select, group and count in one call |
-| `result_paginate`, `result_get_item` | Read a list directly |
-| `result_search_in_text`, `result_read_page` | Search and read a stored text |
-| `result_list` | Stored results of this conversation (e.g. after it was summarized) |
+| `result_search(result_id, query, max_results, fields)` | A list: the best-matching items, each with its `index`, plus how many items match any / all query words. A text: the passages with the exact phrase (nearby occurrences merged), or else the passages with the most and rarest query words, with their page. |
+| `result_read(result_id, page, page_size, index, field, fields)` | A text: one page (4,000 chars). A list: a page of items, or one item (`index`); one long value of an item in full, page by page (`index` + `field`, dot paths allowed). |
+| `result_query(result_id, steps, save_as)` | Filter, sort, select, group and count a list in one call. Rows that are items of the list come with their `index`. At most 50 rows (fewer if they are large) come back; `save_as` keeps the full output as a new stored result. |
+| `result_list()` | The stored results of this conversation, e.g. after it was summarized. |
 
-The upstream tool is never called again to explore a result, which matters
-for tools with side effects.
+Long string values in listings are cut, with the exact `result_read` call
+that returns them in full. `fields=[...]` keeps only some fields. Responses
+are capped at 25,000 characters; above that, the tool asks for fewer fields
+or a smaller page instead of answering. Wrong arguments (a missing id, a
+string where a number belongs) get the same kind of fixable error as any
+other mistake, never a raw validation message. Objects that wrap the data,
+like `{"data": {"items": [...]}, "meta": {...}}`, are unpacked to the list.
+
+The explanation of stored results is appended to the server's instructions
+(the wrapped server's own instructions are kept), so the tool descriptions
+stay short: the four definitions take about 3,600 characters. The upstream
+tool is never called again to explore a result, which matters for tools with
+side effects. JSON Lines output (one JSON object per line, as many logs are)
+is stored as a list, so it can be filtered and counted.
 
 - [Install into a client](#install-into-a-client)
 - [`ctxtual wrap`](#ctxtual-wrap)
@@ -105,12 +122,15 @@ ctxtual wrap [options] -- <command> [args ...]
 
 | Option | |
 |---|---|
-| `--threshold N` | Offload results longer than N characters (default 8000) |
-| `--ttl SECONDS` | Keep stored results this long (default 3600; `0` = until exit). The model is told. |
+| `--threshold N` | Store results longer than N characters (default 8000) |
+| `--tool-threshold GLOB=N` | A different threshold for some tools, e.g. `get_file=40000` (repeatable) |
+| `--include GLOB`, `--exclude GLOB` | Only / never store results of these tools (repeatable) |
+| `--ttl SECONDS` | Drop a stored result after this long without use (default 3600; `0` = never). The model is told. |
+| `--max-results N` | Most stored results kept; the least recently used go first (default 200) |
 | `--store PATH` | Keep stored results in a SQLite file across restarts (default: memory) |
-| `--include GLOB`, `--exclude GLOB` | Only / never offload these tools (repeatable) |
-| `--prefix NAME` | Prefix of the injected tools (default `result`) |
-| `--allow-regex` | Allow `$regex` in `result_pipe` filters (off: patterns are model-written) |
+| `--tools LIST` | Which tools to add, e.g. `search,read` (default `search,read,query,list`) |
+| `--prefix NAME` | Prefix of the added tools (default `result`) |
+| `--allow-regex` | Allow `$regex` in `result_query` filters (off: patterns are model-written) |
 | `-H 'Name: value'` | Header for a remote server; `${VAR}` is read from the environment |
 | `--oauth`, `--oauth-scope S` | Log in with OAuth if the server answers 401 |
 | `--sse` | The URL uses the legacy HTTP+SSE transport (default: when the path ends in `/sse`) |
@@ -119,11 +139,14 @@ ctxtual wrap [options] -- <command> [args ...]
 | `--name`, `--log-level` | Server name; log level (stderr) |
 
 Stored results live in the wrapper process. A client normally starts one
-wrapper per server and keeps it running for the session, so results last as
-long as the conversation (or `--ttl`). Every offloaded call gets its own
-stored result, so an id the model is still using never changes under it; old
-ones expire after `--ttl`, and at most 500 are kept (least recently used go
-first). With `--store`, the SQLite file is created readable only by you.
+wrapper per server and keeps it running for the session. Every stored call
+gets its own `result_id`, so a result the model is still using never changes
+under it. Results are dropped after `--ttl` seconds without use, and beyond
+`--max-results` (or 100 million characters in total) the least recently used
+go first. These limits apply per user when the server uses authentication,
+and the result just stored is always kept. With `--store`, the SQLite file is
+created readable only by you; every exploration call reads the whole stored
+result from it, so keep the memory store for very large results.
 
 If the wrapped server has a tool with the same name as one of ctxtual's
 (say `result_list`), ctxtual's tools are renamed to `ctxtual_result_*`
@@ -151,21 +174,29 @@ unaffected.
 from fastmcp import FastMCP
 from ctxtual.mcp import Offload
 
-mcp = FastMCP("my-server")
+mcp = FastMCP("my-server", instructions="…")   # yours are kept
 mcp.add_middleware(Offload(
-    threshold=8_000,      # characters
-    ttl=3600,             # seconds, or None
-    store=None,           # any ctxtual store, e.g. SQLiteStore("results.db")
-    include=None,         # glob patterns of tools to offload
-    exclude=(),           # glob patterns never to offload
+    threshold=8_000,                 # characters
+    thresholds={"get_file": 40_000}, # per tool (glob patterns)
+    include=None, exclude=(),        # glob patterns of tools to store / never store
+    ttl=3600,                        # seconds without use before a result is dropped
+    max_results=200,                 # least recently used go first
+    max_total_chars=100_000_000,
+    tools=("search", "read", "query", "list"),
+    prefix="result",                 # tool names: result_search, …
+    store=None,                      # any ctxtual store, e.g. SQLiteStore("results.db")
+    preview_items=3,
+    max_output_chars=25_000,         # largest response of the added tools
+    instructions=True,               # append the explanation to the instructions
 ))
 ```
 
 `Offload` lists its tools next to yours and removes the `outputSchema` of
 tools whose results it may replace (a stored-result notice doesn't match the
-declared schema). Very long error messages are trimmed to their beginning and
-end instead of being stored. Results with images or other non-text content
-pass through.
+declared schema); tools you `exclude` keep theirs. Very long error messages
+are trimmed to their beginning and end instead of being stored. Results with
+images or other non-text content pass through. If one of your tools is
+called like an added one (`result_search`, …), pass another `prefix`.
 
 To wrap a server you don't control from Python:
 
@@ -225,7 +256,8 @@ what you configure. That is what the MCP spec requires (no token passthrough).
   through pages takes more calls and tokens than receiving it whole. ctxtual
   pays off when the model needs a part of the result — a search, a filter, a
   count — which is the common case.
-- Each wrapped server adds seven tools to the client's tool list.
+- Each wrapped server adds four tools (about 3,600 characters of
+  definitions) to the client's tool list; `--tools` can add fewer.
 - Results that contain images or audio are passed through, not stored.
 - Over the legacy HTTP+SSE transport (`--sse`), the MCP SDK rejects single
   results larger than 1 MiB. Streamable HTTP accepts up to 64 MiB.
