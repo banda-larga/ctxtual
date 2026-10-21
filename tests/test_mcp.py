@@ -7,6 +7,7 @@ Requires the ``mcp`` extra; skipped otherwise.
 import asyncio
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -355,6 +356,28 @@ class TestReviewRegressions:
 
         asyncio.run(run())
         assert db.stat().st_mode & 0o077 == 0
+
+
+class TestPipeSaveAs:
+    async def test_saved_result_is_a_compact_notice_with_callable_tools(self):
+        proxy = create_offload_proxy([sys.executable, UPSTREAM])
+        async with Client(proxy) as c:
+            tools = {t.name for t in await c.list_tools()}
+            ws = json.loads(text(await c.call_tool("list_issues", {"n": 2000})))["stored_result"]
+            saved = json.loads(text(await c.call_tool("result_pipe", {
+                "workspace_id": ws, "steps": [{"filter": {"state": "open"}}],
+                "save_as": "open_issues"})))
+            assert saved["stored_result"] == "saved_open_issues"
+            assert saved["item_count"] == 1000 and len(saved["preview"]) == 3
+            assert saved["how_to_explore"].startswith("Pipeline result saved as workspace")
+            mentioned = set(re.findall(r"\b(result_[a-z_]+)\(", saved["how_to_explore"]))
+            assert mentioned and mentioned <= tools
+            page = json.loads(text(await c.call_tool(
+                "result_paginate", {"workspace_id": "saved_open_issues", "size": 2})))
+            assert page["result"]["total"] == 1000
+            # tools that aren't exposed can't be reached through dispatch either
+            r = await c.call_tool("result_pipe", {"workspace_id": ws, "steps": []})
+            assert "truncated" in json.loads(text(r))
 
 
 class TestPreview:

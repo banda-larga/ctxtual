@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+### Fixed
+
+- `result_pipe(..., save_as=...)` over MCP advertised four tools the wrapper
+  doesn't expose (`result_count`, `result_get_slice`, `result_field_values`,
+  `result_aggregate`). A saved pipeline result now comes back as the same
+  compact notice as other stored results, naming only tools that exist.
+
 ## 0.3.0
 
 ctxtual now works with any MCP server, without code. Install with the new

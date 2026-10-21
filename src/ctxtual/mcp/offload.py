@@ -127,6 +127,13 @@ class Offload(ToolInjectionMiddleware):
                      enforce_type=False),
             text_content(self.ctx, prefix, max_chars_per_page=10_000, enforce_type=False),
         ]
+        # Drop the factory tools that aren't exposed, so nothing (e.g. a
+        # saved pipeline result) can point the model at a tool it can't call.
+        exposed = {f"{prefix}_{suffix}" for suffix in _EXPOSED}
+        for ts in self._toolsets:
+            for unused in [n for n in ts.tool_names if n not in exposed]:
+                ts._tools.pop(unused, None)
+                ts._raw_tools.pop(unused, None)
         tools = [self._exploration_tool(ts, f"{prefix}_{suffix}")
                  for suffix in _EXPOSED
                  for ts in self._toolsets
@@ -279,6 +286,8 @@ class Offload(ToolInjectionMiddleware):
         payload: Any,
         size: int,
         container: dict[str, Any] | None,
+        *,
+        lead: str | None = None,
     ) -> dict[str, Any]:
         p = self.prefix
         notice: dict[str, Any] = {"stored_result": workspace_id, "tool": tool}
@@ -289,9 +298,12 @@ class Offload(ToolInjectionMiddleware):
                 notice["fields"] = fields
             notice["preview"] = build_preview(payload, max_items=self.preview_items)
             how = (
-                f"Too large to show in full ({size:,} chars, {len(payload):,} items); "
+                lead
+                or f"Too large to show in full ({size:,} chars, {len(payload):,} items); "
                 f"stored as workspace '{workspace_id}'. Explore it instead of calling "
-                f"{tool} again: {p}_search(workspace_id, query) finds items by text; "
+                f"{tool} again:"
+            ) + (
+                f" {p}_search(workspace_id, query) finds items by text; "
                 f"{p}_pipe(workspace_id, steps) filters, sorts and aggregates in one "
                 f'call, e.g. steps=[{{"filter": {{"field": {{"$gte": 1}}}}}}, '
                 f'{{"sort": {{"field": "field", "order": "desc"}}}}, {{"limit": 10}}]; '
@@ -303,9 +315,11 @@ class Offload(ToolInjectionMiddleware):
             notice["chars"] = len(text)
             notice["preview"] = build_preview(text)
             how = (
-                f"Too large to show in full ({len(text):,} chars); stored as workspace "
-                f"'{workspace_id}'. Explore it instead of calling {tool} again: "
-                f"{p}_search_in_text(workspace_id, query) finds passages; "
+                lead
+                or f"Too large to show in full ({len(text):,} chars); stored as workspace "
+                f"'{workspace_id}'. Explore it instead of calling {tool} again:"
+            ) + (
+                f" {p}_search_in_text(workspace_id, query) finds passages; "
                 f"{p}_read_page(workspace_id, page) reads it page by page."
             )
         if container:
@@ -324,7 +338,20 @@ class Offload(ToolInjectionMiddleware):
         @functools.wraps(target)
         async def call(**kwargs: Any) -> ToolResult:
             with self._scope():
-                return _to_tool_result(ctx.dispatch_tool_call(name, kwargs))
+                result = ctx.dispatch_tool_call(name, kwargs)
+                if isinstance(result, dict) and result.get("status") == "pipeline_result_saved":
+                    # Describe a saved pipeline result like any stored result:
+                    # same compact notice, only tools that exist here.
+                    ws_id = result["workspace_id"]
+                    payload = ctx.store.get_items(ws_id)
+                    count = len(payload) if isinstance(payload, list) else 1
+                    notice = self._notice(
+                        ws_id, name, payload, _json_len(payload), None,
+                        lead=f"Pipeline result saved as workspace '{ws_id}' "
+                        f"({count:,} items). Explore it with:",
+                    )
+                    return _to_tool_result(notice)
+                return _to_tool_result(result)
 
         first, _, rest = inspect.getdoc(target).partition("\n")
         description = (
