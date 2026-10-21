@@ -25,7 +25,12 @@ if TYPE_CHECKING:
     from ctxtual.ctx import Ctx
 
 
-def to_langchain_tools(ctx: "Ctx", *, workspace_id: str | None = None) -> list[Any]:
+def to_langchain_tools(
+    ctx: "Ctx",
+    *,
+    workspace_id: str | None = None,
+    session_id: str | None = None,
+) -> list[Any]:
     """
     Wrap all ctx tools as LangChain ``StructuredTool`` objects.
 
@@ -33,8 +38,14 @@ def to_langchain_tools(ctx: "Ctx", *, workspace_id: str | None = None) -> list[A
     validation, type checking, and safe error handling all work as expected.
 
     Args:
-        ctx:        The :class:`~ctx.Ctx` instance.
-        workspace_id: Optional workspace ID to scope consumer tools to.
+        ctx:        The :class:`~ctxtual.Ctx` instance.
+        workspace_id: Optional workspace ID to mention in tool descriptions.
+        session_id: Run every call inside this session
+                    (see :mod:`ctxtual.session`).  Build one tool list per
+                    conversation when serving several users.
+
+    Each tool supports both ``invoke`` and ``ainvoke``; the async path awaits
+    async producers and tools.
 
     Returns:
         A list of ``StructuredTool`` instances ready for LangChain agents.
@@ -72,18 +83,26 @@ def to_langchain_tools(ctx: "Ctx", *, workspace_id: str | None = None) -> list[A
         )
 
         # Closure captures tool_name correctly
-        def _make_fn(name: str, desc: str):  # noqa: E301
+        def _make_fns(name: str, desc: str) -> tuple[Any, Any]:
             def fn(**kwargs: Any) -> Any:
-                return ctx.dispatch_tool_call(name, kwargs)
+                return ctx.dispatch_tool_call(name, kwargs, session_id=session_id)
 
-            fn.__name__ = name
-            fn.__doc__ = desc
-            return fn
+            async def afn(**kwargs: Any) -> Any:
+                return await ctx.adispatch_tool_call(
+                    name, kwargs, session_id=session_id
+                )
 
+            for f in (fn, afn):
+                f.__name__ = name
+                f.__doc__ = desc
+            return fn, afn
+
+        sync_fn, async_fn = _make_fns(tool_name, description)
         tool = StructuredTool(
             name=tool_name,
             description=description,
-            func=_make_fn(tool_name, description),
+            func=sync_fn,
+            coroutine=async_fn,
             args_schema=args_model,
         )
         tools.append(tool)

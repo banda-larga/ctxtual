@@ -66,8 +66,10 @@ class TestPaginator:
     def test_get_slice(self, papers_forge) -> None:
         ctx, ws_id = papers_forge
         ts = paginator(ctx, "papers")
-        items = ts.tools["papers_get_slice"](ws_id, start=1, end=3)
+        result = ts.tools["papers_get_slice"](ws_id, start=1, end=3)
+        items = result["items"]
         assert len(items) == 2
+        assert result["total"] == 5
         assert (
             items[0]["title"] == "BERT: Pre-training of Deep Bidirectional Transformers"
         )
@@ -81,7 +83,7 @@ class TestTextSearch:
         ctx, ws_id = papers_forge
         ts = text_search(ctx, "papers", fields=["title"])
         result = ts.tools["papers_search"](ws_id, query="transformer")
-        assert result["total_matches"] >= 1
+        assert result["returned"] >= 1
         titles = [m["title"] for m in result["matches"]]
         assert any("Transformer" in t for t in titles)
 
@@ -89,13 +91,13 @@ class TestTextSearch:
         ctx, ws_id = papers_forge
         ts = text_search(ctx, "papers", fields=["title"])
         result = ts.tools["papers_search"](ws_id, query="BERT")
-        assert result["total_matches"] >= 1
+        assert result["returned"] >= 1
 
     def test_search_no_results(self, papers_forge) -> None:
         ctx, ws_id = papers_forge
         ts = text_search(ctx, "papers", fields=["title"])
         result = ts.tools["papers_search"](ws_id, query="xyznonexistent")
-        assert result["total_matches"] == 0
+        assert result["returned"] == 0
         assert result["matches"] == []
 
     def test_search_max_results(self, papers_forge) -> None:
@@ -109,7 +111,7 @@ class TestTextSearch:
         ctx, ws_id = papers_forge
         ts = text_search(ctx, "papers")  # no fields specified
         result = ts.tools["papers_search"](ws_id, query="Vaswani")
-        assert result["total_matches"] >= 1
+        assert result["returned"] >= 1
 
     def test_field_values(self, papers_forge) -> None:
         ctx, ws_id = papers_forge
@@ -135,14 +137,14 @@ class TestFilterSet:
         ctx, ws_id = papers_forge
         ts = filter_set(ctx, "papers")
         result = ts.tools["papers_filter_by"](ws_id, field="year", value=2020, operator="eq")
-        assert result["count"] == 2
+        assert result["total_matches"] == 2
         assert all(p["year"] == 2020 for p in result["results"])
 
     def test_filter_gte(self, papers_forge) -> None:
         ctx, ws_id = papers_forge
         ts = filter_set(ctx, "papers")
         result = ts.tools["papers_filter_by"](ws_id, field="year", value=2020, operator="gte")
-        assert result["count"] == 3  # 2020, 2020, 2022
+        assert result["total_matches"] == 3  # 2020, 2020, 2022
         assert all(p["year"] >= 2020 for p in result["results"])
 
     def test_filter_contains(self, papers_forge) -> None:
@@ -151,25 +153,25 @@ class TestFilterSet:
         result = ts.tools["papers_filter_by"](
             ws_id, field="title", value="Transformer", operator="contains"
         )
-        assert result["count"] >= 1
+        assert result["total_matches"] >= 1
 
     def test_filter_no_match(self, papers_forge) -> None:
         ctx, ws_id = papers_forge
         ts = filter_set(ctx, "papers")
         result = ts.tools["papers_filter_by"](ws_id, field="year", value=1990, operator="eq")
-        assert result["count"] == 0
+        assert result["total_matches"] == 0
 
     def test_sort_by_ascending(self, papers_forge) -> None:
         ctx, ws_id = papers_forge
         ts = filter_set(ctx, "papers")
-        result = ts.tools["papers_sort_by"](ws_id, field="year", descending=False)
+        result = ts.tools["papers_sort_by"](ws_id, field="year", descending=False)["items"]
         years = [p["year"] for p in result]
         assert years == sorted(years)
 
     def test_sort_by_descending(self, papers_forge) -> None:
         ctx, ws_id = papers_forge
         ts = filter_set(ctx, "papers")
-        result = ts.tools["papers_sort_by"](ws_id, field="citations", descending=True)
+        result = ts.tools["papers_sort_by"](ws_id, field="citations", descending=True)["items"]
         citations = [p["citations"] for p in result]
         assert citations == sorted(citations, reverse=True)
 
@@ -177,8 +179,10 @@ class TestFilterSet:
         ctx, ws_id = papers_forge
         ts = filter_set(ctx, "papers")
         result = ts.tools["papers_sort_by"](ws_id, field="citations", descending=True, limit=2)
-        assert len(result) == 2
-        assert result[0]["citations"] >= result[1]["citations"]
+        assert result["has_more"] is True
+        items = result["items"]
+        assert len(items) == 2
+        assert items[0]["citations"] >= items[1]["citations"]
 
 
 # KV Reader
@@ -196,7 +200,7 @@ class TestKVReader:
 
         result = ts.tools["config_get_keys"]("ws_cfg")
         # output_hint wraps in {"result": [...], "_hint": "..."}
-        keys = result["result"] if isinstance(result, dict) and "result" in result else result
+        keys = result["result"]["keys"]
         assert set(keys) == {"name", "version", "debug"}
 
     def test_get_value(self) -> None:
@@ -228,8 +232,7 @@ class TestKVReader:
 
         result = ts.tools["data_get_keys"]("ws_list")
         # output_hint wraps in {"result": [...], "_hint": "..."}
-        keys = result["result"] if isinstance(result, dict) and "result" in result else result
-        assert keys == []
+        assert result["result"]["keys"] == []
 
     def test_get_value_non_dict(self) -> None:
         ctx = Ctx(store=MemoryStore())

@@ -398,7 +398,7 @@ class TestSaveAsNotification:
         ref = search_papers("test")
         ws_id = ref["workspace_id"]
 
-        ctx.dispatch_tool_call("papers_pipe", {
+        saved = ctx.dispatch_tool_call("papers_pipe", {
             "workspace_id": ws_id,
             "steps": [{"filter": {"year": {"$gte": 2019}}}],
             "save_as": "browsable",
@@ -406,7 +406,7 @@ class TestSaveAsNotification:
 
         # Should be browsable with all the registered tools
         page = ctx.dispatch_tool_call("papers_paginate", {
-            "workspace_id": "browsable",
+            "workspace_id": saved["workspace_id"],
             "page": 0,
             "size": 10,
         })

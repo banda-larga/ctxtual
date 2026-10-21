@@ -28,7 +28,7 @@ from ctxtual.utils import paginator, text_search
 DB_PATH = Path(tempfile.mkdtemp()) / "tasks.db"
 
 
-def create_forge(db_path: Path = DB_PATH) -> Ctx:
+def create_ctx(db_path: Path = DB_PATH) -> Ctx:
     """Create a Ctx instance with SQLite persistence."""
     return Ctx(
         store=SQLiteStore(path=db_path),
@@ -187,7 +187,7 @@ def simulate():
     print("PHASE 1: Initial session — load tasks and work on them")
     print("=" * 70)
 
-    ctx = create_forge()
+    ctx = create_ctx()
     ops = task_ops(ctx)
     load_tasks = setup_producer(ctx, ops)
 
@@ -250,22 +250,22 @@ def simulate():
     print("PHASE 2: New process — resume from SQLite")
     print("=" * 70)
 
-    forge2 = create_forge()
-    ops2 = task_ops(forge2)
-    setup_producer(forge2, ops2)  # Re-register (schemas only, won't reload data)
+    ctx2 = create_ctx()
+    ops2 = task_ops(ctx2)
+    setup_producer(ctx2, ops2)  # Re-register (schemas only, won't reload data)
 
     # Workspaces survived the restart
-    workspaces = forge2.list_workspaces()
+    workspaces = ctx2.list_workspaces()
     print(f"\nWorkspaces found: {workspaces}")
 
     for ws_id in workspaces:
-        meta = forge2.workspace_meta(ws_id)
+        meta = ctx2.workspace_meta(ws_id)
         print(f"  {ws_id}: {meta.item_count} items, shape={meta.data_shape}")
 
     # Read back the mutated state
     ws_id = workspaces[0]
     print(f"\nCurrent tasks in {ws_id}:")
-    result = forge2.dispatch_tool_call(
+    result = ctx2.dispatch_tool_call(
         "tasks_paginate", {"workspace_id": ws_id, "page": 0, "size": 10}
     )
     for i, task in enumerate(result["result"]["items"]):
@@ -275,14 +275,14 @@ def simulate():
         )
 
     # Search still works
-    result = forge2.dispatch_tool_call(
+    result = ctx2.dispatch_tool_call(
         "tasks_search", {"workspace_id": ws_id, "query": "critical"}
     )
-    print(f"\nSearch 'critical': {result['total_matches']} matches")
+    print(f"\nSearch 'critical': {result['returned']} matches")
     for m in result["matches"]:
         print(f"  • {m['title']} ({m['status']})")
 
-    forge2.close()
+    ctx2.close()
     print(f"\n{'=' * 70}")
     print("All mutations persisted across process restarts.")
     print("=" * 70)

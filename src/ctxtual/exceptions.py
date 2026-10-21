@@ -127,6 +127,54 @@ class PayloadTooLargeError(CtxtualError):
             f"of {limit:,}. Increase max_items on your Ctx instance or filter upstream."
         )
 
+    def to_llm_dict(self) -> dict[str, Any]:
+        return {
+            "error": (
+                f"The result has {self.count:,} items, more than the "
+                f"{self.limit:,} allowed."
+            ),
+            "item_count": self.count,
+            "max_items": self.limit,
+            "suggested_action": "Call the tool again with a narrower query.",
+        }
+
+
+class InvalidArgumentError(CtxtualError):
+    """Raised when a tool argument has the wrong type or format."""
+
+    def __init__(self, argument: str, message: str) -> None:
+        self.argument = argument
+        super().__init__(f"Invalid '{argument}': {message}")
+
+    def to_llm_dict(self) -> dict[str, Any]:
+        return {
+            "error": str(self),
+            "argument": self.argument,
+            "suggested_action": "Call the tool again with a valid value.",
+        }
+
+
+class WorkspaceConflictError(CtxtualError):
+    """
+    Raised when storing would overwrite a workspace that the write is not
+    allowed to replace (different type, different producer, or another
+    session's data).
+    """
+
+    def __init__(self, workspace_id: str, reason: str) -> None:
+        self.workspace_id = workspace_id
+        self.reason = reason
+        super().__init__(
+            f"Refusing to overwrite workspace '{workspace_id}': {reason}"
+        )
+
+    def to_llm_dict(self) -> dict[str, Any]:
+        return {
+            "error": f"Workspace '{self.workspace_id}' already exists: {self.reason}",
+            "workspace_id": self.workspace_id,
+            "suggested_action": "Choose a different name and try again.",
+        }
+
 
 class ToolExecutionError(CtxtualError):
     """

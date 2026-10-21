@@ -26,10 +26,15 @@ class WorkspaceMeta:
         producer_fn:      Name of the function that created this workspace.
         producer_kwargs:  Serialisable copy of the arguments passed to the producer.
         item_count:       Number of items in the primary payload.
-        ttl:              Time-to-live in seconds.  ``None`` = never expires.
+        ttl:              Time-to-live in seconds, measured from ``created_at``
+                          (an absolute lifetime, not an idle timeout).
+                          Re-running the producer resets it.
+                          ``None`` = never expires.
         data_shape:       Shape of the stored payload: ``"list"``, ``"dict"``,
                           ``"scalar"``, or ``""`` (unknown/legacy).
         extra:            Arbitrary user metadata attached at produce-time.
+        session_id:       Session that owns this workspace, or ``None`` for
+                          shared/global workspaces.  See :mod:`ctxtual.session`.
     """
 
     workspace_id: str
@@ -42,10 +47,11 @@ class WorkspaceMeta:
     ttl: float | None = None
     data_shape: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
+    session_id: str | None = None
 
     @property
     def is_expired(self) -> bool:
-        """Return ``True`` if the workspace has exceeded its TTL."""
+        """Return ``True`` if more than ``ttl`` seconds passed since creation."""
         if self.ttl is None:
             return False
         return (time.time() - self.created_at) > self.ttl

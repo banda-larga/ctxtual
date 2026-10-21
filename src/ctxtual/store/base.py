@@ -19,6 +19,17 @@ from ctxtual.types import WorkspaceMeta
 # Query helpers (used by default query-method implementations)
 
 
+# Punctuation that wraps a word rather than belonging to it.  Symbols such
+# as "+" and "#" are kept, so "C++" and "C#" stay distinct from "C".
+_WRAPPING_PUNCTUATION = "\"'`()[]{}<>,.;:!?"
+
+
+def query_terms(query: str) -> list[str]:
+    """Split a search query into terms (shared by all backends)."""
+    terms = (t.replace("\x00", "").strip(_WRAPPING_PUNCTUATION) for t in query.split())
+    return [t for t in terms if t]
+
+
 def _make_hashable(value: Any) -> Any:
     """Convert a value to something safe for set membership."""
     if isinstance(value, dict):
@@ -196,6 +207,18 @@ class BaseStore(ABC):
         """Check whether a workspace is present in the store."""
         return self.get_meta(workspace_id) is not None
 
+    def touch(self, workspace_id: str) -> None:
+        """
+        Record an access by updating ``last_accessed_at`` in the store.
+
+        Called by tool wrappers on every successful workspace access.  The
+        default re-upserts the metadata; override for a cheaper update.
+        """
+        meta = self.get_meta(workspace_id)
+        if meta is not None:
+            meta.touch()
+            self.init_workspace(meta)
+
     # TTL & cleanup
 
     def sweep_expired(self) -> list[str]:
@@ -250,7 +273,7 @@ class BaseStore(ABC):
         """
         items = self.get_items(workspace_id)
         q = query if case_sensitive else query.lower()
-        terms = q.split()
+        terms = query_terms(q)
 
         if not terms:
             return []

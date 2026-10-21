@@ -305,7 +305,6 @@ class TestToolSpec:
 
     def test_spec_repr(self) -> None:
         from ctxtual.utils import paginator
-        from ctxtual.toolset import ToolSpec
 
         ctx = Ctx()
         spec = paginator(ctx)

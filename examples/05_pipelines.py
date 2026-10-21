@@ -251,7 +251,7 @@ print(f"  Saved: {result['item_count']} papers → workspace '{result['workspace
 page = ctx.dispatch_tool_call(
     "papers_paginate",
     {
-        "workspace_id": "papers_2023",
+        "workspace_id": result["workspace_id"],  # "saved_papers_2023"
         "page": 0,
         "size": 3,
     },

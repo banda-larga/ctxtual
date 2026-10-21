@@ -56,13 +56,51 @@ Operations
 - ``{"count": true}`` — return ``{"count": N}``
 
 Metric specs: ``"count"``, ``"sum:field"``, ``"mean:field"``, ``"min:field"``,
-``"max:field"``, ``"values:field"`` (unique values list).
+``"max:field"``, ``"values:field"`` (unique values list), ``"median:field"``,
+``"stddev:field"``.
+
+Regular expressions
+-------------------
+
+``$regex`` patterns are written by the model and run on your server with
+Python's backtracking :mod:`re` engine, which has no timeout, so a crafted
+pattern can pin a CPU.  ``$regex`` is therefore **disabled by default**;
+enable it with ``PipelineEngine(allow_regex=True)`` /
+``pipeline(ctx, allow_regex=True)``.  When enabled, patterns are checked on
+Python's own parse tree and rejected if they contain a repeat nested inside
+an unbounded repeat (``(a+)+``, ``((a)+)+``), alternation inside an unbounded
+repeat (``(a|a)+``), backreferences, or more than
+:data:`MAX_UNBOUNDED_REPEATS` unbounded repeats; values are matched only up
+to :data:`MAX_REGEX_INPUT` characters.  This removes the known exponential
+shapes but is not a proof of safety — only enable it for trusted prompts.
 """
 
+import functools
 import math
 import random
 import re
+from contextvars import ContextVar
+from re import _constants as _sre_c  # type: ignore[attr-defined]
+from re import _parser as _sre_parser  # type: ignore[attr-defined]
 from typing import Any
+
+#: Longest ``$regex`` pattern accepted.
+MAX_REGEX_LENGTH = 200
+#: Characters of each value a ``$regex`` is matched against.
+MAX_REGEX_INPUT = 1_000
+#: Most distinct values a ``values:field`` metric returns.  Larger sets come
+#: back as ``{"values": [...], "total": N, "truncated": True}``.
+MAX_METRIC_VALUES = 100
+#: Most unbounded repeats (``*``, ``+``, ``{n,}``) a pattern may contain.
+MAX_UNBOUNDED_REPEATS = 4
+
+_REPEAT_OPS = {
+    _sre_c.MAX_REPEAT,
+    _sre_c.MIN_REPEAT,
+    *([_sre_c.POSSESSIVE_REPEAT] if hasattr(_sre_c, "POSSESSIVE_REPEAT") else []),
+}
+
+_allow_regex: ContextVar[bool] = ContextVar("ctxtual_allow_regex", default=False)
 
 
 class PipelineError(ValueError):
@@ -77,9 +115,18 @@ class PipelineError(ValueError):
 
 
 class PipelineEngine:
-    """Execute declarative data pipelines on lists of dicts."""
+    """
+    Execute declarative data pipelines on lists of dicts.
+
+    Args:
+        allow_regex: Whether ``$regex`` filters are permitted (default
+                     ``False``; see the module docs).
+    """
 
     OPERATORS: dict[str, Any] = {}  # populated after class definition
+
+    def __init__(self, *, allow_regex: bool = False) -> None:
+        self.allow_regex = allow_regex
 
     def execute(self, items: list[Any], steps: list[dict[str, Any]]) -> Any:
         """
@@ -96,6 +143,13 @@ class PipelineEngine:
                 example=[{"filter": {"status": "active"}}, {"limit": 10}],
             )
 
+        token = _allow_regex.set(self.allow_regex)
+        try:
+            return self._run(items, steps)
+        finally:
+            _allow_regex.reset(token)
+
+    def _run(self, items: list[Any], steps: list[dict[str, Any]]) -> Any:
         data: Any = items
         for idx, step in enumerate(steps):
             op_name, params = _parse_step(step, idx)
@@ -501,13 +555,17 @@ def _compare(field_val: Any, ops: dict[str, Any]) -> bool:
             if field_val in threshold:
                 return False
         elif op == "$contains":
-            if threshold not in str(field_val or ""):
+            if isinstance(field_val, (list, tuple)):
+                if threshold not in field_val:
+                    return False
+            elif str(threshold) not in str(field_val or ""):
                 return False
         elif op == "$startswith":
             if not str(field_val or "").startswith(str(threshold)):
                 return False
         elif op == "$regex":
-            if not re.search(str(threshold), str(field_val or "")):
+            pattern = _compile_regex(str(threshold))
+            if not pattern.search(str(field_val or "")[:MAX_REGEX_INPUT]):
                 return False
         elif op == "$exists":
             if threshold and field_val is None:
@@ -532,6 +590,90 @@ def _compare(field_val: Any, ops: dict[str, Any]) -> bool:
                 ],
             )
     return True
+
+
+def _compile_regex(pattern: str) -> "re.Pattern[str]":
+    if not _allow_regex.get():
+        raise PipelineError(
+            "$regex is disabled for this pipeline. Use $contains or "
+            "$startswith instead."
+        )
+    return _compile_checked(pattern)
+
+
+@functools.lru_cache(maxsize=256)
+def _compile_checked(pattern: str) -> "re.Pattern[str]":
+    if len(pattern) > MAX_REGEX_LENGTH:
+        raise PipelineError(
+            f"$regex pattern is longer than {MAX_REGEX_LENGTH} characters."
+        )
+    try:
+        tree = _sre_parser.parse(pattern)
+        compiled = re.compile(pattern)
+    except re.error as exc:
+        raise PipelineError(f"Invalid $regex pattern: {exc}") from exc
+    problem = _regex_problem(tree)
+    if problem:
+        raise PipelineError(
+            f"$regex pattern rejected: {problem}, which can take "
+            "exponential time. Simplify it."
+        )
+    return compiled
+
+
+def _regex_problem(tree: Any) -> str | None:
+    """Return why a parsed pattern is unsafe to run, or ``None``."""
+    unbounded = 0
+
+    # in_unbounded: inside a repeat with no upper bound (any inner repeat
+    #   multiplies backtracking paths exponentially);
+    # in_multi: inside a repeat with upper bound > 1 (an inner unbounded
+    #   repeat makes the cost polynomial with that bound as the degree).
+    def walk(items: Any, in_unbounded: bool, in_multi: bool) -> str | None:
+        nonlocal unbounded
+        for op, av in items:
+            if op in _REPEAT_OPS:
+                low, high, sub = av
+                is_unbounded = high == _sre_c.MAXREPEAT
+                if in_unbounded or (in_multi and is_unbounded):
+                    return "it repeats a group that itself repeats"
+                if is_unbounded:
+                    unbounded += 1
+                    if unbounded > MAX_UNBOUNDED_REPEATS:
+                        return f"it has more than {MAX_UNBOUNDED_REPEATS} unbounded repeats"
+                    if _contains(sub, {_sre_c.BRANCH}):
+                        return "it repeats an alternation"
+                found = walk(sub, in_unbounded or is_unbounded, in_multi or high > 1)
+            elif op == _sre_c.SUBPATTERN:
+                found = walk(av[-1], in_unbounded, in_multi)
+            elif op == _sre_c.BRANCH:
+                found = None
+                for branch in av[1]:
+                    found = found or walk(branch, in_unbounded, in_multi)
+            elif op in (_sre_c.ASSERT, _sre_c.ASSERT_NOT):
+                found = walk(av[1], in_unbounded, in_multi)
+            elif op in (_sre_c.GROUPREF, _sre_c.GROUPREF_EXISTS):
+                found = "it uses a backreference"
+            else:
+                found = None
+            if found:
+                return found
+        return None
+
+    return walk(tree, False, False)
+
+
+def _contains(items: Any, ops: set[Any]) -> bool:
+    for op, av in items:
+        if op in ops:
+            return True
+        if op in _REPEAT_OPS and _contains(av[2], ops):
+            return True
+        if op == _sre_c.SUBPATTERN and _contains(av[-1], ops):
+            return True
+        if op in (_sre_c.ASSERT, _sre_c.ASSERT_NOT) and _contains(av[1], ops):
+            return True
+    return False
 
 
 def _compute_metric(spec: str, items: list[dict[str, Any]]) -> Any:
@@ -566,6 +708,12 @@ def _compute_metric(spec: str, items: list[dict[str, Any]]) -> Any:
             if k not in seen:
                 seen.add(k)
                 unique.append(v)
+        if len(unique) > MAX_METRIC_VALUES:
+            return {
+                "values": unique[:MAX_METRIC_VALUES],
+                "total": len(unique),
+                "truncated": True,
+            }
         return unique
     if agg_fn == "median":
         if not numeric:

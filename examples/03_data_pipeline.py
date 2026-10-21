@@ -147,7 +147,8 @@ def load_orders(period: str = "2024-Q4") -> list[dict]:
 def extract_vip_orders(
     workspace_id: str,
     min_amount: int = 10000,
-    forge_ctx: ConsumerContext = None,
+    *,
+    consumer_ctx: ConsumerContext,
 ) -> dict:
     """Filter orders above a minimum amount threshold.
 
@@ -155,10 +156,10 @@ def extract_vip_orders(
         workspace_id: Source workspace with all orders.
         min_amount: Minimum order amount to qualify as VIP.
     """
-    all_orders = forge_ctx.get_items()
+    all_orders = consumer_ctx.get_items()
     vip = [o for o in all_orders if o["amount"] >= min_amount]
 
-    return forge_ctx.emit(
+    return consumer_ctx.emit(
         vip,
         meta={
             "derived_from": workspace_id,
@@ -178,14 +179,15 @@ def extract_vip_orders(
 )
 def compute_region_stats(
     workspace_id: str,
-    forge_ctx: ConsumerContext = None,
+    *,
+    consumer_ctx: ConsumerContext,
 ) -> dict:
     """Compute revenue and count statistics grouped by region.
 
     Args:
         workspace_id: Source workspace with VIP orders.
     """
-    orders = forge_ctx.get_items()
+    orders = consumer_ctx.get_items()
 
     stats: dict[str, dict] = {}
     for order in orders:
@@ -206,7 +208,7 @@ def compute_region_stats(
     }
 
     # Emit as a dict workspace (kv_reader will handle it)
-    return forge_ctx.emit(
+    return consumer_ctx.emit(
         stats,
         meta={"derived_from": workspace_id},
     )
@@ -240,7 +242,7 @@ def run_pipeline():
         "orders_sort_by",
         {"workspace_id": ws_orders, "field": "amount", "descending": True, "limit": 3},
     )
-    top3 = [f"{o['customer']} (${o['amount']:,})" for o in result]
+    top3 = [f"{o['customer']} (${o['amount']:,})" for o in result["items"]]
     print(f"  Top 3 orders: {top3}")
 
     # Step 2: Agent decides to filter for VIP orders
@@ -259,7 +261,7 @@ def run_pipeline():
 
     # Step 3: Compute region stats
     stats_ref = compute_region_stats(workspace_id=ws_vip)
-    print(f"\n[Step 3] Region stats computed")
+    print("\n[Step 3] Region stats computed")
     print(
         f"  Workspace: {stats_ref['workspace_id']} (shape: {stats_ref['data_shape']})"
     )
@@ -270,7 +272,7 @@ def run_pipeline():
         "region_stats_get_keys",
         {"workspace_id": ws_stats},
     )
-    data = result["result"]  # unwrap hint envelope
+    data = result["result"]["keys"]  # unwrap hint envelope
     print(f"  Stat keys: {data}")
 
     for region in [k for k in data if not k.startswith("_")]:

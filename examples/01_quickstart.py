@@ -60,7 +60,7 @@ def agent_loop(user_message: str):
         "items_search",
         {"workspace_id": ws_id, "query": "engineer"},
     )
-    print(f"Search 'engineer': {result['total_matches']} matches")
+    print(f"Search 'engineer': {result['returned']} matches")
 
     # LLM calls another tool
     result = ctx.dispatch_tool_call(

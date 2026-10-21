@@ -3,8 +3,8 @@
 import pytest
 
 from ctxtual import Ctx, MemoryStore
-from ctxtual.exceptions import WorkspaceNotFoundError
 from ctxtual.ctx import ConsumerContext
+from ctxtual.exceptions import WorkspaceNotFoundError
 from ctxtual.toolset import ToolSet
 from ctxtual.types import WorkspaceMeta, WorkspaceRef
 

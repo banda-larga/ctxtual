@@ -22,7 +22,6 @@ Then test:
 
 import threading
 import time
-import uuid
 
 from ctxtual import Ctx, MemoryStore
 from ctxtual.utils import paginator, text_search
@@ -169,7 +168,7 @@ def simulate_concurrent():
                 "workspace_id": ws_id,
                 "items": ref["item_count"],
                 "page_items": len(page_result["result"]["items"]),
-                "search_matches": search_result["total_matches"],
+                "search_matches": search_result["returned"],
             }
         except Exception as e:
             errors.append((user_id, str(e)))
@@ -229,7 +228,7 @@ def simulate_concurrent():
     ), f"Expected {len(queries)} workspaces, got {len(all_workspaces)}"
 
     # Show a few results
-    print(f"\nSample results:")
+    print("\nSample results:")
     for user_id in sorted(results.keys())[:5]:
         r = results[user_id]
         print(

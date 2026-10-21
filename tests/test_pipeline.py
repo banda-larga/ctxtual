@@ -90,11 +90,16 @@ class TestPipelineEngineFilter:
         )
         assert all(p["title"].startswith("Quantum") for p in result)
 
-    def test_regex_filter(self, engine):
+    def test_regex_filter(self):
+        engine = PipelineEngine(allow_regex=True)
         result = engine.execute(
             PAPERS, [{"filter": {"title": {"$regex": r"^(Deep|Graph)"}}}]
         )
         assert len(result) == 2
+
+    def test_regex_disabled_by_default(self, engine):
+        with pytest.raises(PipelineError, match="disabled"):
+            engine.execute(PAPERS, [{"filter": {"title": {"$regex": "Deep"}}}])
 
     def test_exists_filter(self, engine):
         data = [{"a": 1, "b": 2}, {"a": 3}, {"b": 4}]
@@ -558,11 +563,11 @@ class TestPipelineToolSet:
             },
         )
         assert result["status"] == "pipeline_result_saved"
-        assert result["workspace_id"] == "alice_papers"
+        assert result["workspace_id"] == "saved_alice_papers"
         assert result["item_count"] == 3
 
         # Saved workspace is browsable
-        saved = ctx.store.get_items("alice_papers")
+        saved = ctx.store.get_items("saved_alice_papers")
         assert len(saved) == 3
 
     def test_pipe_error_handling(self, forge_with_pipeline):

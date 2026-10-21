@@ -34,7 +34,7 @@ class TestEndToEnd:
 
         # Search
         hits = search.tools["items_search"](ws_id, query="gadget")
-        assert hits["total_matches"] == 1
+        assert hits["returned"] == 1
         assert hits["matches"][0]["name"] == "Gadget C"
 
     def test_full_flow_sqlite(self, tmp_path) -> None:
@@ -166,4 +166,4 @@ class TestEndToEnd:
         expensive = filt.tools["data_filter_by"](
             ws_id, field="price", value=1000, operator="gte"
         )
-        assert expensive["count"] == 2
+        assert expensive["total_matches"] == 2

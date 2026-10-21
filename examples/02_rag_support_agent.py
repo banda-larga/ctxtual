@@ -141,7 +141,7 @@ def simulate_agent():
         "articles_search",
         {"workspace_id": ws_id, "query": "2FA authentication", "max_results": 5},
     )
-    print(f"\n[Step 2] Search '2FA authentication' → {result['total_matches']} matches")
+    print(f"\n[Step 2] Search '2FA authentication' → {result['returned']} matches")
     for match in result["matches"]:
         print(f"  • {match['title']}")
 
@@ -158,7 +158,7 @@ def simulate_agent():
         "articles_filter_by",
         {"workspace_id": ws_id, "field": "category", "value": "account"},
     )
-    print(f"\n[Step 4] Filter category=account → {result['count']} articles")
+    print(f"\n[Step 4] Filter category=account → {result['total_matches']} articles")
     for item in result["results"]:
         print(f"  • {item['title']} ({item['views']:,} views)")
 
@@ -167,8 +167,8 @@ def simulate_agent():
         "articles_sort_by",
         {"workspace_id": ws_id, "field": "views", "descending": True, "limit": 3},
     )
-    print(f"\n[Step 5] Top 3 by views:")
-    for item in result:
+    print("\n[Step 5] Top 3 by views:")
+    for item in result["items"]:
         print(f"  • {item['title']} — {item['views']:,} views")
 
     # Step 6: Discover what categories exist

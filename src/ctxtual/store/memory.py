@@ -21,8 +21,8 @@ class MemoryStore(BaseStore):
 
     Args:
         max_workspaces: Optional cap on the number of live workspaces.
-                        When exceeded the oldest workspace is evicted
-                        (LRU by ``created_at``).
+                        When exceeded, the least recently used workspace
+                        (smallest ``last_accessed_at``) is evicted.
 
     Internal structure::
 
@@ -40,7 +40,9 @@ class MemoryStore(BaseStore):
 
     def init_workspace(self, meta: WorkspaceMeta) -> None:
         with self._lock:
-            self._meta[meta.workspace_id] = meta
+            # Store a copy so later mutation of the caller's object can't
+            # change stored state outside the lock.
+            self._meta[meta.workspace_id] = copy.deepcopy(meta)
             self._data.setdefault(meta.workspace_id, {})
             self._maybe_evict()
 
@@ -65,6 +67,12 @@ class MemoryStore(BaseStore):
                 ids = [k for k in ids if self._meta[k].workspace_type == workspace_type]
             return ids
 
+    def touch(self, workspace_id: str) -> None:
+        with self._lock:
+            meta = self._meta.get(workspace_id)
+            if meta is not None:
+                meta.touch()
+
     # Data I/O
 
     def set(self, workspace_id: str, key: str, value: Any) -> None:
@@ -84,13 +92,13 @@ class MemoryStore(BaseStore):
     # Eviction
 
     def _maybe_evict(self) -> None:
-        """Drop the oldest workspace when ``max_workspaces`` is exceeded."""
+        """Drop least-recently-used workspaces while over ``max_workspaces``."""
         if self.max_workspaces is None:
             return
         while len(self._meta) > self.max_workspaces:
-            oldest_id = min(self._meta, key=lambda k: self._meta[k].created_at)
-            self._meta.pop(oldest_id, None)
-            self._data.pop(oldest_id, None)
+            lru_id = min(self._meta, key=lambda k: self._meta[k].last_accessed_at)
+            self._meta.pop(lru_id, None)
+            self._data.pop(lru_id, None)
 
     def sweep_expired(self) -> list[str]:
         """Remove all workspaces that have exceeded their TTL."""

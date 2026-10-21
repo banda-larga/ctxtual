@@ -17,10 +17,13 @@ from collections.abc import Callable
 from typing import Any, Literal, Union, get_args, get_origin
 
 from ctxtual.exceptions import (
+    CtxtualError,
+    InvalidArgumentError,
     WorkspaceExpiredError,
     WorkspaceNotFoundError,
     WorkspaceTypeMismatchError,
 )
+from ctxtual.session import is_visible, visible_workspaces
 from ctxtual.types import WorkspaceMeta
 
 
@@ -33,10 +36,14 @@ class ToolSet:
                          ``workspace_type`` it will operate on).
         enforce_type:    If ``True`` (default) consumer tools will raise
                          :exc:`WorkspaceTypeMismatchError` when called with a
-                         workspace_id whose type doesn't match *name*.
+                         workspace_id whose type doesn't match *name*.  Set
+                         ``False`` for one generic ToolSet shared by many
+                         workspace types (keeps the tool list short).
         safe:            If ``True`` (default), tool exceptions are caught and
                          returned as ``{"error": ...}`` dicts instead of
                          propagating up and crashing the agent loop.
+        data_shape:      Default payload shape expected by this ToolSet's
+                         tools; individual tools can override it.
 
     Usage::
 
@@ -64,7 +71,7 @@ class ToolSet:
         self._raw_tools: dict[str, Callable[..., Any]] = {}
         self._output_hints: dict[str, str | None] = {}
         self._schema_extras: dict[str, dict[str, dict[str, Any]]] = {}
-        self._tool_shapes: dict[str, str] = {}
+        self._tool_shapes: dict[str, str | None] = {}
         # Injected by Ctx.register_toolset()
         self._store: Any | None = None
 
@@ -90,6 +97,7 @@ class ToolSet:
         validate_workspace: bool = True,
         output_hint: str | None = None,
         schema_extra: dict[str, dict[str, Any]] | None = None,
+        data_shape: str | None = None,
     ) -> Callable[..., Any]:
         """
         Register a consumer function as a tool in this ToolSet.
@@ -97,28 +105,34 @@ class ToolSet:
         The decorated function **must** accept ``workspace_id: str`` as its
         first parameter.  The wrapper will:
 
-        - Verify the workspace exists in the store.
+        - Verify the workspace exists and is visible to the active session.
         - Optionally verify its type matches this toolset's *name*.
-        - Check TTL expiry.
+        - Check TTL expiry and record the access (``last_accessed_at``).
+        - Check the payload shape matches the tool's expected shape.
         - Forward the call to the original function.
         - If ``safe=True`` on the ToolSet, catch exceptions and return a
           structured error dict.
         - If ``output_hint`` is set, wrap the result with a contextual hint
           that tells the LLM what to do next — making tools self-describing.
 
+        Both sync and ``async def`` functions are supported; async tools
+        produce an async wrapper (use :meth:`Ctx.adispatch_tool_call`).
+
         Args:
             name:               Override the tool name (default: function name).
             validate_workspace: Whether to validate workspace existence/type.
             output_hint:        A short instruction appended to the tool result
-                                when returned to the LLM. This makes tools
-                                self-describing without requiring system prompt
-                                boilerplate. Supports ``{workspace_id}``
-                                placeholder.
+                                when returned to the LLM. Supports the
+                                ``{workspace_id}`` placeholder.
             schema_extra:       Per-parameter JSON Schema overrides.  Maps
                                 parameter names to schema dicts that are merged
                                 into the auto-generated schema.  Use to add
                                 ``examples``, ``items`` details, ``enum``, etc.
                                 Example: ``{"steps": {"examples": [[{"limit": 5}]]}}``
+            data_shape:         Payload shape this tool expects (``"list"``,
+                                ``"dict"`` or ``"scalar"``).  Defaults to the
+                                ToolSet's ``data_shape`` at call time, so one
+                                ToolSet can mix tools for different shapes.
 
         Can be used as ``@toolset.tool`` or ``@toolset.tool(name="x")``.
         """
@@ -128,105 +142,91 @@ class ToolSet:
             self._raw_tools[tool_name] = func
             self._output_hints[tool_name] = output_hint
             self._schema_extras[tool_name] = schema_extra or {}
-            self._tool_shapes[tool_name] = self.data_shape
+            self._tool_shapes[tool_name] = data_shape
+            sig = inspect.signature(func)
+            first_is_ws = next(iter(sig.parameters), None) == "workspace_id"
 
-            @functools.wraps(func)
-            def wrapper(*args: Any, **kwargs: Any) -> Any:
-                sig = inspect.signature(func)
-                params = list(sig.parameters.keys())
-                if args and params and params[0] == "workspace_id":
-                    workspace_id = args[0]
-                else:
-                    workspace_id = kwargs.get("workspace_id")
+            def _workspace_id(args: tuple, kwargs: dict) -> Any:
+                if args and first_is_ws:
+                    return args[0]
+                return kwargs.get("workspace_id")
 
-                if workspace_id is not None and validate_workspace:
-                    meta: WorkspaceMeta | None = self._store.get_meta(workspace_id)
-                    if meta is None:
-                        raise WorkspaceNotFoundError(
-                            workspace_id,
-                            available=(
-                                self._store.list_workspaces(self.name)
-                                if self._store
-                                else []
-                            ),
-                        )
-                    if meta.is_expired:
-                        self._store.drop_workspace(workspace_id)
-                        raise WorkspaceExpiredError(
-                            workspace_id,
-                            producer_fn=meta.producer_fn,
-                        )
-                    if self.enforce_type and meta.workspace_type != self.name:
-                        raise WorkspaceTypeMismatchError(
-                            workspace_id,
-                            self.name,
-                            meta.workspace_type,
-                            matching_workspaces=(
-                                self._store.list_workspaces(self.name)
-                                if self._store
-                                else []
-                            ),
-                        )
-                    meta.touch()
+            ws_param = sig.parameters.get("workspace_id")
+            ws_optional = ws_param is not None and ws_param.default is None
 
-                    # Validate data shape matches toolset expectation
-                    if (
-                        self.data_shape
-                        and meta.data_shape
-                        and meta.data_shape != self.data_shape
-                    ):
-                        expected = self.data_shape
-                        actual = meta.data_shape
-                        _shape_tools = {
-                            "list": "paginate, search, filter_by",
-                            "dict": "get_keys, get_value",
-                        }
-                        return {
-                            "error": (
-                                f"Data shape mismatch: this tool expects "
-                                f"'{expected}' data but workspace "
-                                f"'{workspace_id}' contains '{actual}' data."
-                            ),
-                            "expected_shape": expected,
-                            "actual_shape": actual,
-                            "workspace_id": workspace_id,
-                            "suggested_action": (
-                                f"This workspace stores {actual} data. "
-                                f"Use tools designed for {actual} data "
-                                f"(e.g. {_shape_tools.get(actual, actual + '-compatible tools')}) "
-                                f"instead."
-                            ),
-                        }
-                try:
-                    result = func(*args, **kwargs)
-                except (
-                    WorkspaceNotFoundError,
-                    WorkspaceExpiredError,
-                    WorkspaceTypeMismatchError,
-                ):
-                    raise  # always propagate ctx validation errors
-                except Exception as exc:
-                    if not self.safe:
-                        raise
-                    return {
-                        "error": f"{type(exc).__name__}: {exc}",
-                        "tool": tool_name,
-                        "workspace_id": workspace_id,
-                        "suggested_action": (
-                            "Check the parameters and try again. "
-                            "Use workspace_id from a previous producer call."
-                        ),
-                    }
+            def _before(workspace_id: Any) -> dict[str, Any] | None:
+                """Validate access; return an error dict to short-circuit."""
+                if ws_param is None or not validate_workspace:
+                    return None
+                if workspace_id is None and ws_optional:
+                    return None  # the tool declares the workspace optional
+                validate_workspace_id(workspace_id)
+                meta = check_workspace(
+                    self.store,
+                    workspace_id,
+                    expected_type=self.name if self.enforce_type else None,
+                )
+                self.store.touch(workspace_id)
+                expected = self.tool_shape(tool_name)
+                if expected and meta.data_shape and meta.data_shape != expected:
+                    return _shape_mismatch(workspace_id, expected, meta.data_shape)
+                return None
 
-                # Apply output hint if configured — always use a
-                # consistent envelope so the result shape never mutates.
-                hint = output_hint
-                if hint and workspace_id:
-                    hint = hint.replace("{workspace_id}", str(workspace_id))
-                if hint:
+            def _on_error(exc: Exception, workspace_id: Any) -> Any:
+                # Library errors carry their own LLM-facing payload; let them
+                # through so dispatch can return ``exc.to_llm_dict()``.
+                if isinstance(exc, CtxtualError) or not self.safe:
+                    raise exc
+                return {
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "tool": tool_name,
+                    "workspace_id": workspace_id,
+                    "suggested_action": (
+                        "Check the parameters and try again. "
+                        "Use workspace_id from a previous producer call."
+                    ),
+                }
+
+            def _after(result: Any, workspace_id: Any) -> Any:
+                # Always use the same envelope so the result shape never
+                # depends on the content.
+                if output_hint:
+                    hint = output_hint
+                    if workspace_id:
+                        hint = hint.replace("{workspace_id}", str(workspace_id))
                     return {"result": result, "_hint": hint}
-
                 return result
+
+            if inspect.iscoroutinefunction(func):
+
+                @functools.wraps(func)
+                async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    workspace_id = _workspace_id(args, kwargs)
+                    error = _before(workspace_id)
+                    if error is not None:
+                        return error
+                    try:
+                        result = await func(*args, **kwargs)
+                    except Exception as exc:
+                        return _on_error(exc, workspace_id)
+                    return _after(result, workspace_id)
+
+                wrapper: Callable[..., Any] = async_wrapper
+            else:
+
+                @functools.wraps(func)
+                def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    workspace_id = _workspace_id(args, kwargs)
+                    error = _before(workspace_id)
+                    if error is not None:
+                        return error
+                    try:
+                        result = func(*args, **kwargs)
+                    except Exception as exc:
+                        return _on_error(exc, workspace_id)
+                    return _after(result, workspace_id)
+
+                wrapper = sync_wrapper
 
             wrapper.__toolset__ = self.name  # type: ignore[attr-defined]
             wrapper.__tool_name__ = tool_name  # type: ignore[attr-defined]
@@ -236,6 +236,15 @@ class ToolSet:
         if fn is not None:
             return decorator(fn)
         return decorator
+
+    def tool_shape(self, tool_name: str) -> str | None:
+        """The payload shape *tool_name* expects (``None`` = any)."""
+        return self._tool_shapes.get(tool_name) or self.data_shape
+
+    def claim_shape(self, shape: str) -> None:
+        """Set ``data_shape`` if unset (used by the built-in factories)."""
+        if self.data_shape is None:
+            self.data_shape = shape
 
     # Introspection
 
@@ -400,6 +409,81 @@ class BoundToolSet:
         return (
             f"BoundToolSet(name={self.name!r}, " f"workspace_id={self.workspace_id!r})"
         )
+
+
+# Workspace validation (shared by ToolSet tools and Ctx consumers)
+
+_VALIDATION_ERRORS = (
+    WorkspaceNotFoundError,
+    WorkspaceExpiredError,
+    WorkspaceTypeMismatchError,
+)
+
+_SHAPE_TOOLS = {
+    "list": "paginate, search, filter_by, pipe",
+    "dict": "get_keys, get_value",
+    "scalar": "read_page, search_in_text",
+}
+
+
+def validate_workspace_id(workspace_id: Any) -> None:
+    """Raise :exc:`InvalidArgumentError` unless *workspace_id* is a usable id."""
+    if not isinstance(workspace_id, str) or not workspace_id:
+        raise InvalidArgumentError(
+            "workspace_id",
+            f"expected a workspace id string, got {type(workspace_id).__name__} "
+            f"{workspace_id!r:.60}",
+        )
+
+
+def check_workspace(
+    store: Any,
+    workspace_id: str,
+    *,
+    expected_type: str | None = None,
+) -> WorkspaceMeta:
+    """
+    Return the metadata of *workspace_id* if the caller may use it.
+
+    Raises :exc:`WorkspaceNotFoundError` for missing workspaces and for
+    workspaces owned by another session (indistinguishable on purpose),
+    :exc:`WorkspaceExpiredError` (after dropping the workspace) and
+    :exc:`WorkspaceTypeMismatchError` when *expected_type* doesn't match.
+    """
+    meta: WorkspaceMeta | None = store.get_meta(workspace_id)
+    if meta is None or not is_visible(meta):
+        raise WorkspaceNotFoundError(
+            workspace_id,
+            available=visible_workspaces(store, expected_type),
+        )
+    if meta.is_expired:
+        store.drop_workspace(workspace_id)
+        raise WorkspaceExpiredError(workspace_id, producer_fn=meta.producer_fn)
+    if expected_type is not None and meta.workspace_type != expected_type:
+        raise WorkspaceTypeMismatchError(
+            workspace_id,
+            expected_type,
+            meta.workspace_type,
+            matching_workspaces=visible_workspaces(store, expected_type),
+        )
+    return meta
+
+
+def _shape_mismatch(workspace_id: str, expected: str, actual: str) -> dict[str, Any]:
+    return {
+        "error": (
+            f"Data shape mismatch: this tool expects '{expected}' data but "
+            f"workspace '{workspace_id}' contains '{actual}' data."
+        ),
+        "expected_shape": expected,
+        "actual_shape": actual,
+        "workspace_id": workspace_id,
+        "suggested_action": (
+            f"This workspace stores {actual} data. Use tools designed for "
+            f"{actual} data (e.g. {_SHAPE_TOOLS.get(actual, actual + '-compatible tools')}) "
+            f"instead."
+        ),
+    }
 
 
 # Schema helpers

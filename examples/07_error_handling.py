@@ -77,7 +77,7 @@ def demo_errors():
     print(f"  error: {result['error']}")
     print(f"  available_tools: {result['available_tools'][:3]}...")
     print(f"  suggested_action: {result['suggested_action']}")
-    print(f"\n  → The LLM sees available tools and can self-correct.")
+    print("\n  → The LLM sees available tools and can self-correct.")
 
     # Error 2: Wrong workspace ID
     print(f"\n{'─' * 50}")
@@ -92,7 +92,7 @@ def demo_errors():
     if "available_workspaces" in result:
         print(f"  available_workspaces: {result['available_workspaces']}")
     print(f"  suggested_action: {result['suggested_action']}")
-    print(f"\n  → The LLM sees valid workspace IDs and can retry.")
+    print("\n  → The LLM sees valid workspace IDs and can retry.")
 
     # Error 3: Index out of range
     print(f"\n{'─' * 50}")
@@ -107,7 +107,7 @@ def demo_errors():
     print(f"  valid_range: {result['valid_range']}")
     print(f"  total_items: {result['total_items']}")
     print(f"  suggested_action: {result['suggested_action']}")
-    print(f"\n  → The LLM knows the valid range and can pick a valid index.")
+    print("\n  → The LLM knows the valid range and can pick a valid index.")
 
     # Error 4: Wrong key in dict workspace
     print(f"\n{'─' * 50}")
@@ -121,7 +121,7 @@ def demo_errors():
     print(f"  error: {result['error']}")
     print(f"  available_keys: {result['available_keys']}")
     print(f"  suggested_action: {result['suggested_action']}")
-    print(f"\n  → The LLM sees all valid keys and can pick the right one.")
+    print("\n  → The LLM sees all valid keys and can pick the right one.")
 
     # Error 5: Data shape mismatch
     print(f"\n{'─' * 50}")
@@ -135,7 +135,7 @@ def demo_errors():
     # This triggers workspace type mismatch (config != articles)
     print(f"  error: {result['error']}")
     print(f"  suggested_action: {result['suggested_action']}")
-    print(f"\n  → The LLM learns it's using the wrong tool type.")
+    print("\n  → The LLM learns it's using the wrong tool type.")
 
     # Error 6: Expired workspace
     print(f"\n{'─' * 50}")
@@ -144,7 +144,7 @@ def demo_errors():
 
     import time
 
-    print(f"  Waiting for TTL to expire (2 seconds)...")
+    print("  Waiting for TTL to expire (2 seconds)...")
     time.sleep(2.5)
 
     result = ctx.dispatch_tool_call(
@@ -153,7 +153,7 @@ def demo_errors():
     )
     print(f"  error: {result['error']}")
     print(f"  suggested_action: {result['suggested_action']}")
-    print(f"\n  → The LLM knows to call the producer again to refresh data.")
+    print("\n  → The LLM knows to call the producer again to refresh data.")
 
     # Summary
     print(f"\n{'=' * 70}")

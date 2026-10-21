@@ -156,7 +156,7 @@ def run_simulation():
         print(f"  • {t['name']}({', '.join(params)})")
 
     # Step 1: Load PR metadata
-    print(f"\n[Turn 1] Load PR metadata")
+    print("\n[Turn 1] Load PR metadata")
     meta_ref = ctx.dispatch_tool_call(
         "load_pr_metadata", {"repo": "acme/backend", "number": 42}
     )
@@ -166,7 +166,7 @@ def run_simulation():
     ws_meta = meta_ref["workspace_id"]
 
     # Step 2: Load PR files
-    print(f"\n[Turn 2] Load PR files")
+    print("\n[Turn 2] Load PR files")
     files_ref = ctx.dispatch_tool_call(
         "load_pr_files", {"repo": "acme/backend", "number": 42}
     )
@@ -176,9 +176,9 @@ def run_simulation():
     ws_files = files_ref["workspace_id"]
 
     # Step 3: Read PR title and description
-    print(f"\n[Turn 3] Read PR description")
+    print("\n[Turn 3] Read PR description")
     result = ctx.dispatch_tool_call("pr_meta_get_keys", {"workspace_id": ws_meta})
-    keys = result["result"]  # unwrap hint envelope
+    keys = result["result"]["keys"]  # unwrap hint envelope
     print(f"  Keys: {keys}")
 
     title = ctx.dispatch_tool_call(
@@ -200,7 +200,7 @@ def run_simulation():
     )
 
     # Step 4: Browse changed files
-    print(f"\n[Turn 4] Browse files")
+    print("\n[Turn 4] Browse files")
     result = ctx.dispatch_tool_call(
         "pr_files_paginate", {"workspace_id": ws_files, "page": 0, "size": 10}
     )
@@ -211,17 +211,17 @@ def run_simulation():
         )
 
     # Step 5: Search for security-relevant patterns
-    print(f"\n[Turn 5] Search for 'secret' in patches")
+    print("\n[Turn 5] Search for 'secret' in patches")
     result = ctx.dispatch_tool_call(
         "pr_files_search",
         {"workspace_id": ws_files, "query": "SECRET_KEY", "max_results": 5},
     )
-    print(f"  Found {result['total_matches']} file(s) referencing SECRET_KEY:")
+    print(f"  Found {result['returned']} file(s) referencing SECRET_KEY:")
     for m in result["matches"]:
         print(f"  ⚠ {m['filename']} — hardcoded secret reference in patch")
 
     # Step 6: Read specific file detail
-    print(f"\n[Turn 6] Read test file details")
+    print("\n[Turn 6] Read test file details")
     result = ctx.dispatch_tool_call(
         "pr_files_get_item", {"workspace_id": ws_files, "index": 2}
     )
@@ -265,7 +265,7 @@ def run_with_anthropic():
     for turn in range(15):
         tools = to_anthropic_tools(ctx)
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-5-5",
             max_tokens=4096,
             system=system,
             tools=tools,

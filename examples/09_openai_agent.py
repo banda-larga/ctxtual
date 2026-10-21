@@ -160,8 +160,8 @@ def run_with_openai():
                     print(
                         f"  → Workspace created: {content['workspace_id']} ({content['item_count']} items)"
                     )
-                elif isinstance(content, dict) and "total_matches" in content:
-                    print(f"  → Search returned {content['total_matches']} matches")
+                elif isinstance(content, dict) and "returned" in content:
+                    print(f"  → Search returned {content['returned']} matches")
                 else:
                     print(f"  → Tool result: {str(content)[:100]}...")
         else:
@@ -201,17 +201,17 @@ def run_simulation():
     ws_id = ref["workspace_id"]
 
     # Step 2: LLM searches within results
-    print(f"\n[Turn 2] LLM calls: papers_search(query='reasoning')")
+    print("\n[Turn 2] LLM calls: papers_search(query='reasoning')")
     result = ctx.dispatch_tool_call(
         "papers_search",
         {"workspace_id": ws_id, "query": "reasoning", "max_results": 3},
     )
-    print(f"  → {result['total_matches']} matches")
+    print(f"  → {result['returned']} matches")
     for m in result["matches"]:
         print(f"    • {m['title']} ({m['year']})")
 
     # Step 3: LLM reads a specific paper
-    print(f"\n[Turn 3] LLM calls: papers_get_item(index=0)")
+    print("\n[Turn 3] LLM calls: papers_get_item(index=0)")
     result = ctx.dispatch_tool_call(
         "papers_get_item", {"workspace_id": ws_id, "index": 0}
     )
@@ -220,7 +220,7 @@ def run_simulation():
     print(f"    Citations: {result['citations']:,}")
 
     # Step 4: LLM paginates
-    print(f"\n[Turn 4] LLM calls: papers_paginate(page=0, size=2)")
+    print("\n[Turn 4] LLM calls: papers_paginate(page=0, size=2)")
     result = ctx.dispatch_tool_call(
         "papers_paginate", {"workspace_id": ws_id, "page": 0, "size": 2}
     )

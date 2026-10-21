@@ -104,7 +104,8 @@ analysis_pager = paginator(ctx, "analysis")
 def analyze_sources(
     workspace_id: str,
     min_relevance: float = 0.85,
-    forge_ctx: ConsumerContext = None,
+    *,
+    consumer_ctx: ConsumerContext,
 ) -> dict:
     """Analyst agent: filter, enrich, and score the collected data.
 
@@ -112,7 +113,7 @@ def analyze_sources(
         workspace_id: Raw data workspace to analyze.
         min_relevance: Minimum relevance score to include.
     """
-    raw_items = forge_ctx.get_items()
+    raw_items = consumer_ctx.get_items()
 
     # Filter by relevance
     relevant = [item for item in raw_items if item.get("relevance", 0) >= min_relevance]
@@ -126,7 +127,7 @@ def analyze_sources(
     # Sort by relevance
     relevant.sort(key=lambda x: x["relevance"], reverse=True)
 
-    return forge_ctx.emit(
+    return consumer_ctx.emit(
         relevant,
         meta={
             "agent": "analyst",
@@ -150,14 +151,15 @@ report_kv = kv_reader(ctx, "report")
 )
 def write_report(
     workspace_id: str,
-    forge_ctx: ConsumerContext = None,
+    *,
+    consumer_ctx: ConsumerContext,
 ) -> dict:
     """Writer agent: produce a structured report from analyzed data.
 
     Args:
         workspace_id: Analysis workspace to summarize.
     """
-    items = forge_ctx.get_items()
+    items = consumer_ctx.get_items()
 
     # Build report sections
     report = {
@@ -193,7 +195,7 @@ def write_report(
             }
         )
 
-    return forge_ctx.emit(
+    return consumer_ctx.emit(
         report,
         meta={"agent": "writer", "derived_from": workspace_id},
     )
@@ -229,7 +231,7 @@ def run_multi_agent():
         "analysis_paginate", {"workspace_id": ws_analysis, "page": 0, "size": 10}
     )
     data = result["result"]
-    print(f"\n  Analyzed sources (ranked):")
+    print("\n  Analyzed sources (ranked):")
     for item in data["items"]:
         print(
             f"    #{item['analysis_rank']} [{item['source']}] "
@@ -244,7 +246,7 @@ def run_multi_agent():
 
     # Read the report (dict workspace → kv_reader)
     keys = ctx.dispatch_tool_call("report_get_keys", {"workspace_id": ws_report})
-    print(f"\n  Report sections: {keys['result']}")
+    print(f"\n  Report sections: {keys['result']['keys']}")
 
     title = ctx.dispatch_tool_call(
         "report_get_value", {"workspace_id": ws_report, "key": "title"}
@@ -259,14 +261,14 @@ def run_multi_agent():
     findings = ctx.dispatch_tool_call(
         "report_get_value", {"workspace_id": ws_report, "key": "key_findings"}
     )
-    print(f"\n  Key Findings:")
+    print("\n  Key Findings:")
     for f in findings:
         print(f"    • {f}")
 
     timeline = ctx.dispatch_tool_call(
         "report_get_value", {"workspace_id": ws_report, "key": "timeline"}
     )
-    print(f"\n  Timeline:")
+    print("\n  Timeline:")
     for entry in timeline:
         print(f"    {entry['year']}: {entry['title']}")
 

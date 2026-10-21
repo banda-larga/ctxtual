@@ -24,16 +24,19 @@ Quick start::
     # → { "status": "workspace_ready", "workspace_id": "papers_...", ... }
 """
 
+from ctxtual.ctx import ConsumerContext, Ctx
 from ctxtual.exceptions import (
     CtxtualError,
+    InvalidArgumentError,
     PayloadTooLargeError,
     ToolExecutionError,
     ToolSetNotRegisteredError,
+    WorkspaceConflictError,
     WorkspaceExpiredError,
     WorkspaceNotFoundError,
     WorkspaceTypeMismatchError,
 )
-from ctxtual.ctx import ConsumerContext, Ctx
+from ctxtual.session import current_session, session_scope
 from ctxtual.store import BaseStore, MemoryStore, SQLiteStore
 from ctxtual.toolset import BoundToolSet, ToolSet, ToolSpec
 from ctxtual.transforms import chunk_text, split_markdown_sections, split_sections
@@ -54,18 +57,23 @@ __all__ = [
     # Types
     "WorkspaceMeta",
     "WorkspaceRef",
+    # Sessions
+    "current_session",
+    "session_scope",
     # Transforms
     "chunk_text",
     "split_sections",
     "split_markdown_sections",
     # Exceptions
     "CtxtualError",
+    "InvalidArgumentError",
     "WorkspaceNotFoundError",
     "WorkspaceExpiredError",
     "WorkspaceTypeMismatchError",
     "ToolSetNotRegisteredError",
     "PayloadTooLargeError",
+    "WorkspaceConflictError",
     "ToolExecutionError",
 ]
 
-__version__ = "0.1.3"
+__version__ = "0.2.0"

@@ -23,7 +23,7 @@ Typical usage::
 
     while True:
         response = client.messages.create(
-            model="claude-sonnet-4-20250514", messages=messages, tools=tools, max_tokens=4096
+            model="claude-sonnet-5-5", messages=messages, tools=tools, max_tokens=4096
         )
         if not has_tool_use(response):
             break
@@ -78,59 +78,79 @@ def has_tool_use(response: Any) -> bool:
 def handle_tool_use(
     ctx: "Ctx",
     response: Any,
+    *,
+    session_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Dispatch every ``tool_use`` block in *response* through the ctx and
     return ``tool_result`` content blocks for the next user message.
 
     Args:
-        ctx:    The :class:`~ctx.Ctx` instance.
-        response: An Anthropic ``Message`` (SDK object or dict).
+        ctx:        The :class:`~ctxtual.Ctx` instance.
+        response:   An Anthropic ``Message`` (SDK object or dict).
+        session_id: Run the calls inside this session
+                    (see :mod:`ctxtual.session`).
 
     Returns:
         A list of ``{"type": "tool_result", "tool_use_id": ..., "content": ...}``
         dicts.  Pass these as the ``content`` of the next ``role: "user"``
         message.
     """
-    tool_uses = _extract_tool_use(response)
     results: list[dict[str, Any]] = []
-
-    for tu in tool_uses:
-        input_data = tu["input"]
-        if isinstance(input_data, str):
-            input_data = json.loads(input_data)
-
+    for tu in _extract_tool_use(response):
         try:
-            result = ctx.dispatch_tool_call(tu["name"], input_data)
-            content = (
-                json.dumps(result, ensure_ascii=False, default=str)
-                if not isinstance(result, str)
-                else result
+            result = ctx.dispatch_tool_call(
+                tu["name"], tu["input"], session_id=session_id
             )
-            # Detect error dicts returned by dispatch_tool_call
-            is_error = isinstance(result, dict) and "error" in result
         except Exception as exc:
-            content = json.dumps(
-                {
-                    "error": f"{type(exc).__name__}: {exc}",
-                    "suggested_action": "Check the tool name and parameters.",
-                }
+            result = _exception_result(exc)
+        results.append(_tool_result(tu, result))
+    return results
+
+
+async def ahandle_tool_use(
+    ctx: "Ctx",
+    response: Any,
+    *,
+    session_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Async version of :func:`handle_tool_use` (awaits async tools)."""
+    results: list[dict[str, Any]] = []
+    for tu in _extract_tool_use(response):
+        try:
+            result = await ctx.adispatch_tool_call(
+                tu["name"], tu["input"], session_id=session_id
             )
-            is_error = True
-
-        results.append(
-            {
-                "type": "tool_result",
-                "tool_use_id": tu["id"],
-                "content": content,
-                **({"is_error": True} if is_error else {}),
-            }
-        )
-
+        except Exception as exc:
+            result = _exception_result(exc)
+        results.append(_tool_result(tu, result))
     return results
 
 
 # ── internal helpers ──────────────────────────────────────────────────────
+
+
+def _exception_result(exc: Exception) -> dict[str, Any]:
+    return {
+        "error": f"{type(exc).__name__}: {exc}",
+        "suggested_action": "Check the tool name and parameters.",
+    }
+
+
+def _tool_result(tu: dict[str, Any], result: Any) -> dict[str, Any]:
+    content = (
+        result
+        if isinstance(result, str)
+        else json.dumps(result, ensure_ascii=False, default=str)
+    )
+    block: dict[str, Any] = {
+        "type": "tool_result",
+        "tool_use_id": tu["id"],
+        "content": content,
+    }
+    if isinstance(result, dict) and "error" in result:
+        block["is_error"] = True
+    return block
 
 
 def _get_content_blocks(response: Any) -> list[Any]:

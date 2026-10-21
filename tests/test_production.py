@@ -18,8 +18,8 @@ import time
 import pytest
 
 from ctxtual import Ctx, MemoryStore, SQLiteStore, WorkspaceExpiredError
-from ctxtual.exceptions import PayloadTooLargeError
 from ctxtual.ctx import ConsumerContext
+from ctxtual.exceptions import PayloadTooLargeError
 from ctxtual.toolset import ToolSet
 from ctxtual.types import WorkspaceMeta, WorkspaceRef
 
@@ -263,7 +263,7 @@ class TestAsyncSupport:
             await asyncio.sleep(0)
             return [1, 2, 3]
 
-        result = asyncio.get_event_loop().run_until_complete(async_load())
+        result = asyncio.run(async_load())
         assert result["status"] == "workspace_ready"
         assert result["item_count"] == 3
         ws_id = result["workspace_id"]
@@ -279,7 +279,7 @@ class TestAsyncSupport:
         async def async_load() -> list:
             return [1, 2, 3]
 
-        result = asyncio.get_event_loop().run_until_complete(async_load())
+        result = asyncio.run(async_load())
         ws_id = result["workspace_id"]
         assert ctx.store.get_items(ws_id) == [10, 20, 30]
 
@@ -296,7 +296,7 @@ class TestAsyncSupport:
             await asyncio.sleep(0)
             return forge_ctx.get_items()
 
-        result = asyncio.get_event_loop().run_until_complete(async_process("ws_1"))
+        result = asyncio.run(async_process("ws_1"))
         assert result == [10, 20, 30]
 
     def test_async_producer_with_key(self) -> None:
@@ -306,7 +306,7 @@ class TestAsyncSupport:
         async def async_load(category: str) -> list:
             return [1]
 
-        result = asyncio.get_event_loop().run_until_complete(async_load("sales"))
+        result = asyncio.run(async_load("sales"))
         assert result["workspace_id"] == "data_sales"
 
 
