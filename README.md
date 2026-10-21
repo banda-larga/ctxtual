@@ -7,11 +7,97 @@
 
 **Keep large tool results out of the context window.**
 
-When an agent's tool returns 10,000 rows or a 100 KB web page, you usually
-truncate it and hope the answer wasn't in the part you cut. ctxtual stores the
-result in a *workspace* and hands the model a short description of it plus
-tools to page, search, filter and aggregate — so it pulls in only what it
-needs.
+When a tool returns 10,000 rows or a 500 KB page, clients truncate it and hope
+the answer wasn't in the part they cut. ctxtual stores the result instead and
+gives the model a short notice — a preview, the fields, the size — plus tools
+to search, filter, aggregate and page through the stored data. Small results
+pass through untouched.
+
+It works two ways:
+
+- **With any MCP server, no code:** `ctxtual install <client>` wraps the
+  servers your AI client already uses.
+- **As a Python library** for your own agent tools (zero dependencies).
+
+## Use it with your MCP servers
+
+Requires [uv](https://docs.astral.sh/uv/). Wrap every server a client
+already has (a backup is made; `uninstall` puts the original entries back):
+
+```bash
+uvx --from 'ctxtual[mcp]' ctxtual install claude-desktop   # or: cursor, vscode, windsurf,
+                                                           #     codex, claude-code, gemini
+```
+
+Restart the client. That's it. `ctxtual status` shows what is wrapped,
+`--dry-run` shows the changes first, and you can pass server names to wrap
+only some of them.
+
+Adding a new server, already wrapped:
+
+```bash
+uvx --from 'ctxtual[mcp]' ctxtual add cursor github https://api.githubcopilot.com/mcp/ \
+    -H 'Authorization: Bearer ${GITHUB_TOKEN}'
+uvx --from 'ctxtual[mcp]' ctxtual add claude-desktop fs -- npx -y @modelcontextprotocol/server-filesystem ~/docs
+```
+
+`--print` prints the config snippet instead (and a one-click install link
+for Cursor and VS Code). Or write the entry yourself — it is a normal stdio
+server that runs `ctxtual wrap`:
+
+```json
+{
+  "mcpServers": {
+    "deepwiki": {
+      "command": "uvx",
+      "args": ["--from", "ctxtual[mcp]", "ctxtual", "wrap", "https://mcp.deepwiki.com/mcp"]
+    }
+  }
+}
+```
+
+**What the model sees.** A DeepWiki page for the MCP Python SDK is 519,810
+characters (~130k tokens). Through ctxtual the model gets a 1,455-character
+notice:
+
+```json
+{
+  "stored_result": "read_wiki_contents_83afe435931d",
+  "tool": "read_wiki_contents",
+  "chars": 519810,
+  "preview": "# Page: Overview …",
+  "how_to_explore": "Too large to show in full (519,810 chars); stored as workspace 'read_wiki_contents_83afe435931d'. Explore it instead of calling read_wiki_contents again: result_search_in_text(workspace_id, query) finds passages; result_read_page(workspace_id, page) reads it page by page. Kept for 1 hour."
+}
+```
+
+and finds what it needs with `result_search_in_text` (about 1,000
+characters per search). Lists get `fields`, a 3-item preview and
+`result_search` / `result_pipe` (filter, sort, group, count in one call).
+
+**Which clients benefit most.** Clients without a filesystem for the model —
+Claude Desktop and claude.ai connectors, ChatGPT, Cursor, VS Code, custom
+agent loops — otherwise truncate or reject big results. Claude Code already
+saves results over 50,000 characters to files; ctxtual adds a lower
+threshold and query tools there.
+
+Details — every option, OAuth, remote/hosted use, security:
+**[docs/mcp.md](docs/mcp.md)**.
+
+### On your own FastMCP server
+
+```python
+from fastmcp import FastMCP
+from ctxtual.mcp import Offload
+
+mcp = FastMCP("my-server")
+mcp.add_middleware(Offload())          # results > 8,000 chars are stored
+```
+
+---
+
+## The Python library
+
+For tools you call from your own agent loop, without MCP:
 
 ```
 pip install ctxtual
@@ -19,9 +105,7 @@ pip install ctxtual
 
 Zero dependencies (standard library only), Python 3.11+.
 
----
-
-## Contents
+### Contents
 
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
@@ -38,8 +122,6 @@ Zero dependencies (standard library only), Python 3.11+.
 - [Limitations](#limitations)
 - [API reference](#api-reference)
 - [Development](#development)
-
----
 
 ## How it works
 
@@ -490,7 +572,7 @@ keys), and a concurrent server.
 ```bash
 git clone https://github.com/banda-larga/ctxtual.git
 cd ctxtual
-uv sync --extra dev
+uv sync --extra dev --extra mcp
 uv run pytest
 uv run ruff check src/ tests/
 ```

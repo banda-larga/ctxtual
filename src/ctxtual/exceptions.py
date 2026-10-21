@@ -11,7 +11,10 @@ class CtxtualError(Exception):
 
         Subclasses override to add contextual recovery hints.
         """
-        return {"error": str(self)}
+        return {
+            "error": str(self),
+            "suggested_action": "Check the arguments and try again.",
+        }
 
 
 class WorkspaceNotFoundError(CtxtualError):

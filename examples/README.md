@@ -33,6 +33,14 @@ uv run python examples/01_quickstart.py
 | 10 | [Anthropic Agent](10_anthropic_agent.py) | Full agent loop with `anthropic` SDK (simulated without API key) |
 | 11 | [Concurrent Server](11_concurrent_server.py) | FastAPI + thread-safe concurrent sessions |
 
+## MCP
+
+| # | Example | What it demonstrates |
+|---|---------|---------------------|
+| 12 | [MCP Offload](12_mcp_offload.py) | `Offload` middleware on a FastMCP server: notice + `result_*` tools (needs `ctxtual[mcp]`) |
+
+To wrap servers you already use, see [docs/mcp.md](../docs/mcp.md).
+
 ## Notebooks
 
 Interactive Jupyter notebooks in [`notebooks/`](notebooks/) cover the same concepts with inline visualizations.

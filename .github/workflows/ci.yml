@@ -8,10 +8,13 @@ on:
 
 jobs:
   test:
+    name: test (${{ matrix.python-version }}, ${{ matrix.extras }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
+        extras: ["core", "mcp"]
 
     steps:
       - uses: actions/checkout@v4
@@ -24,8 +27,17 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Install dependencies
+      # "core" checks the library still works with no dependencies at all.
+      - name: Install dependencies (core)
+        if: matrix.extras == 'core'
         run: uv sync --extra dev
 
+      - name: Install dependencies (mcp)
+        if: matrix.extras == 'mcp'
+        run: uv sync --extra dev --extra mcp
+
+      - name: Lint
+        run: uv run ruff check src/ tests/
+
       - name: Run tests
-        run: uv run pytest --tb=short -q
+        run: uv run pytest --tb=short -q -W error::DeprecationWarning

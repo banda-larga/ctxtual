@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.3.0
+
+ctxtual now works with any MCP server, without code. Install with the new
+`mcp` extra: `pip install "ctxtual[mcp]"` (the core stays dependency-free).
+
+### Added
+
+- **`ctxtual wrap`** — runs any MCP server (a local command or a remote
+  streamable-HTTP/SSE URL) through ctxtual. Results above `--threshold`
+  characters (default 8,000) are stored and replaced by a notice with a
+  preview, the inferred fields and the size; seven read-only `result_*`
+  tools search, filter, aggregate and page through the stored data. Small
+  results, results with images, and errors pass through (very long errors are
+  trimmed to their start and end).
+- **`ctxtual install <client>` / `uninstall` / `status`** — wraps the servers
+  already configured in Claude Desktop, Claude Code, Cursor, VS Code,
+  Windsurf, Codex and Gemini CLI. Config files are backed up, original
+  entries are saved for an exact `uninstall`, files with comments are left
+  alone, and `--dry-run` shows the changes.
+- **`ctxtual add <client> <name> …`** — adds a new server already wrapped;
+  `--print` prints the snippet and, for Cursor and VS Code, a one-click
+  install link.
+- **`ctxtual.mcp.Offload`** — FastMCP middleware for your own server
+  (`mcp.add_middleware(Offload())`), and `create_offload_proxy()` to wrap a
+  server from Python.
+- Remote servers: headers with `${VAR}` expansion, OAuth login with tokens
+  cached under `~/.ctxtual/oauth` (log in once), legacy SSE.
+- Hosted use: with a FastMCP auth provider, stored results are isolated per
+  authenticated principal.
+
+### Security
+
+- The proxy never forwards its callers' HTTP headers (e.g. `Authorization`)
+  upstream; FastMCP's proxy does by default.
+- `ctxtual wrap --http` validates `Host`/`Origin` (FastMCP's HTTP server
+  doesn't by default) and refuses non-loopback addresses.
+- Local servers receive the wrapper's full environment (the MCP SDK passes
+  only a short allowlist), so secrets in a client's `env` block keep working.
+- `install`/`add` never write header values into process arguments: they go
+  into the entry's `env`. Backups, saved originals, OAuth tokens and
+  `--store` files are readable only by the user.
+
+### Fixed (works around upstream limits)
+
+- Results over 1 MiB from streamable-HTTP servers failed in the MCP SDK
+  client ("Server-sent event exceeded the 1048576 byte limit"), which FastMCP
+  doesn't let callers raise; ctxtual's transport accepts up to 64 MiB.
+
 ## 0.2.0
 
 A correctness and safety release. Several tool outputs changed shape, so
