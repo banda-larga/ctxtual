@@ -470,15 +470,18 @@ class TestAccessTracking:
     def test_reproducing_a_keyed_workspace_resets_ttl(self, store):
         ctx = Ctx(store=store)
 
-        @ctx.producer(workspace_type="inv", toolsets=[], key="inv_{wh}", ttl=0.05)
+        # A TTL with a wide margin: slow CI runners took >50 ms per call.
+        @ctx.producer(workspace_type="inv", toolsets=[], key="inv_{wh}", ttl=0.5)
         def sync(wh: str) -> list[int]:
             return [1]
 
         sync(wh="eu")
-        time.sleep(0.08)
+        first = store.get_meta("inv_eu").created_at
+        time.sleep(0.6)
         assert store.get_meta("inv_eu").is_expired
         sync(wh="eu")
-        assert not store.get_meta("inv_eu").is_expired
+        meta = store.get_meta("inv_eu")
+        assert meta.created_at > first and not meta.is_expired
 
 
 # ── Overwrite protection & sessions ──────────────────────────────────────
