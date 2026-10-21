@@ -1,0 +1,90 @@
+# Release: push a tag vX.Y.Z (matching pyproject.toml and CHANGELOG.md) and
+# this workflow tests, builds, publishes to PyPI and creates the GitHub
+# Release.  PyPI publishing uses Trusted Publishing (OIDC): no token is
+# stored anywhere.  One-time setup: see "Releasing" in README.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.python-version }}, ${{ matrix.extras }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+        extras: ["core", "mcp"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v4
+      - name: Install dependencies
+        run: uv sync --extra dev ${{ matrix.extras == 'mcp' && '--extra mcp' || '' }}
+      - run: uv run ruff check src/ tests/
+      - run: uv run pytest --tb=short -q -W error::DeprecationWarning
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v4
+      - name: Tag matches the package version and the changelog
+        run: python scripts/release_check.py version "${GITHUB_REF_NAME}"
+      - name: Build
+        run: uv build
+      - name: Smoke-test the wheel
+        run: |
+          uvx --isolated --from "$(ls dist/*.whl)" ctxtual --version
+          uvx --isolated --from "$(ls dist/*.whl)[mcp]" ctxtual --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/ctxtual/${{ github.ref_name }}
+    permissions:
+      id-token: write  # Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python scripts/release_check.py notes "$version" > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "ctxtual $version" \
+            --notes-file notes.md \
+            --verify-tag
