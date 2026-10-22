@@ -553,7 +553,10 @@ def pipeline(
     engine = PipelineEngine(allow_regex=allow_regex)
 
     def _capped(items: list[Any], key: str) -> dict[str, Any]:
-        response: dict[str, Any] = {key: items[:max_items], "count": min(len(items), max_items)}
+        response: dict[str, Any] = {
+            key: items[:max_items],
+            "count": min(len(items), max_items),
+        }
         if len(items) > max_items:
             response["total"] = len(items)
             response["truncated"] = True
@@ -715,7 +718,9 @@ def pipeline(
         },
     }
 
-    @ts.tool(name=f"{name}_aggregate", data_shape="list", schema_extra=_agg_schema_extra)
+    @ts.tool(
+        name=f"{name}_aggregate", data_shape="list", schema_extra=_agg_schema_extra
+    )
     def aggregate(
         workspace_id: str,
         group_by: str | None = None,

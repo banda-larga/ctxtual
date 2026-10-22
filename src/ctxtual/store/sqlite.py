@@ -145,7 +145,9 @@ class SQLiteStore(BaseStore):
         if self._path == ":memory:":
             # A plain ":memory:" connection per thread would give each thread
             # its own empty database; a named shared-cache DB is shared.
-            self._uri = f"file:ctxtual-{id(self):x}-{time.time_ns()}?mode=memory&cache=shared"
+            self._uri = (
+                f"file:ctxtual-{id(self):x}-{time.time_ns()}?mode=memory&cache=shared"
+            )
         else:
             self._uri = None
         self._busy_timeout = busy_timeout
@@ -595,7 +597,9 @@ class SQLiteStore(BaseStore):
             # become "c"; such queries use exact substring scoring instead.
             return []
         content_expr = " OR ".join(f"{_fts_phrase(t)}*" for t in terms)
-        match = f"wsk : {_fts_phrase(_wsk(workspace_id))} AND content : ({content_expr})"
+        match = (
+            f"wsk : {_fts_phrase(_wsk(workspace_id))} AND content : ({content_expr})"
+        )
         params: list[Any] = [match]
         field_clause = ""
         if fields:
@@ -780,9 +784,7 @@ class SQLiteStore(BaseStore):
             self._fts_delete(workspace_id, index)
             self._fts_insert(workspace_id, index, [item])
 
-    def patch_item(
-        self, workspace_id: str, index: int, fields: dict[str, Any]
-    ) -> None:
+    def patch_item(self, workspace_id: str, index: int, fields: dict[str, Any]) -> None:
         with self.transaction():
             if not self._has_cf_items(workspace_id):
                 return super().patch_item(workspace_id, index, fields)
@@ -825,8 +827,7 @@ class SQLiteStore(BaseStore):
                 )
             # Re-index remaining rows to maintain contiguous indices
             rows = conn.execute(
-                "SELECT rowid, idx FROM cf_items "
-                "WHERE workspace_id = ? ORDER BY idx",
+                "SELECT rowid, idx FROM cf_items WHERE workspace_id = ? ORDER BY idx",
                 (workspace_id,),
             ).fetchall()
             for new_idx, row in enumerate(rows):

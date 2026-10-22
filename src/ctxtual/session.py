@@ -39,9 +39,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ctxtual.types import WorkspaceMeta
 
-_current_session: ContextVar[str | None] = ContextVar(
-    "ctxtual_session", default=None
-)
+_current_session: ContextVar[str | None] = ContextVar("ctxtual_session", default=None)
 
 
 def current_session() -> str | None:

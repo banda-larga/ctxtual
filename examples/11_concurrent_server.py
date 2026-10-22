@@ -223,9 +223,9 @@ def simulate_concurrent():
     # Verify isolation: each session has its own workspace
     all_workspaces = ctx.list_workspaces()
     print(f"\nWorkspaces created: {len(all_workspaces)}")
-    assert len(all_workspaces) == len(
-        queries
-    ), f"Expected {len(queries)} workspaces, got {len(all_workspaces)}"
+    assert len(all_workspaces) == len(queries), (
+        f"Expected {len(queries)} workspaces, got {len(all_workspaces)}"
+    )
 
     # Show a few results
     print("\nSample results:")

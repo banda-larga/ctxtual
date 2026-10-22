@@ -101,9 +101,11 @@ def handle_tool_calls(
     return [
         _tool_message(
             tc,
-            _safe_call(lambda tc=tc: ctx.dispatch_tool_call(
-                tc["name"], tc["arguments"], session_id=session_id
-            )),
+            _safe_call(
+                lambda tc=tc: ctx.dispatch_tool_call(
+                    tc["name"], tc["arguments"], session_id=session_id
+                )
+            ),
             max_content_length,
         )
         for tc in _extract_tool_calls(response)

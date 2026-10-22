@@ -213,21 +213,24 @@ for clients with small context windows.
 from fastmcp import FastMCP
 from ctxtual.mcp import Offload
 
-mcp = FastMCP("my-server", instructions="…")   # yours are kept
-mcp.add_middleware(Offload(
-    threshold=20_000,                # characters
-    thresholds={"get_file": 40_000}, # per tool (glob patterns)
-    include=None, exclude=(),        # glob patterns of tools to store / never store
-    ttl=3600,                        # seconds without use before a result is dropped
-    max_results=200,                 # least recently used go first
-    max_total_chars=100_000_000,
-    tools=("search", "read", "query", "list"),
-    prefix="result",                 # tool names: result_search, …
-    store=None,                      # any ctxtual store, e.g. SQLiteStore("results.db")
-    preview_items=3,
-    max_output_chars=25_000,         # largest response of the added tools
-    instructions=True,               # append the explanation to the instructions
-))
+mcp = FastMCP("my-server", instructions="…")  # yours are kept
+mcp.add_middleware(
+    Offload(
+        threshold=20_000,  # characters
+        thresholds={"get_file": 40_000},  # per tool (glob patterns)
+        include=None,
+        exclude=(),  # glob patterns of tools to store / never store
+        ttl=3600,  # seconds without use before a result is dropped
+        max_results=200,  # least recently used go first
+        max_total_chars=100_000_000,
+        tools=("search", "read", "query", "list"),
+        prefix="result",  # tool names: result_search, …
+        store=None,  # any ctxtual store, e.g. SQLiteStore("results.db")
+        preview_items=3,
+        max_output_chars=25_000,  # largest response of the added tools
+        instructions=True,  # append the explanation to the instructions
+    )
+)
 ```
 
 `Offload` lists its tools next to yours and removes the `outputSchema` of
@@ -243,8 +246,10 @@ To wrap a server you don't control from Python:
 ```python
 from ctxtual.mcp import create_offload_proxy
 
-proxy = create_offload_proxy("https://mcp.example.com/mcp", headers={"Authorization": "Bearer …"})
-proxy.run()                                  # stdio
+proxy = create_offload_proxy(
+    "https://mcp.example.com/mcp", headers={"Authorization": "Bearer …"}
+)
+proxy.run()  # stdio
 proxy = create_offload_proxy(["npx", "-y", "@scope/server"], threshold=5_000)
 ```
 
@@ -266,8 +271,11 @@ from ctxtual.mcp import create_offload_proxy
 proxy = create_offload_proxy(
     "https://upstream.example.com/mcp",
     headers={"Authorization": "Bearer <service credential>"},
-    auth=JWTVerifier(jwks_uri="https://auth.example.com/.well-known/jwks.json",
-                     issuer="https://auth.example.com", audience="https://ctxtual.example.com/mcp"),
+    auth=JWTVerifier(
+        jwks_uri="https://auth.example.com/.well-known/jwks.json",
+        issuer="https://auth.example.com",
+        audience="https://ctxtual.example.com/mcp",
+    ),
     shared_session=False,
 )
 proxy.run(transport="http", host="0.0.0.0", port=8000)

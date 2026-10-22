@@ -189,9 +189,7 @@ class TestSQLiteStoreMutations:
         assert sqlite_memory_store.get_items(ws_id) == [{"a": 2}]
         assert sqlite_memory_store.count_items(ws_id) == 1
 
-    def test_delete_items_empty_indices(
-        self, sqlite_memory_store: SQLiteStore
-    ) -> None:
+    def test_delete_items_empty_indices(self, sqlite_memory_store: SQLiteStore) -> None:
         ws_id = self._setup_ws(sqlite_memory_store)
         new_count = sqlite_memory_store.delete_items(ws_id, [])
         assert new_count == 3
@@ -205,9 +203,7 @@ class TestSQLiteStoreMutations:
         assert len(items) == 3
         assert items == [{"a": 1}, {"a": 3}, {"a": 99}]
 
-    def test_pagination_after_mutations(
-        self, sqlite_memory_store: SQLiteStore
-    ) -> None:
+    def test_pagination_after_mutations(self, sqlite_memory_store: SQLiteStore) -> None:
         """Ensure get_page works correctly after mutations."""
         ws_id = self._setup_ws(sqlite_memory_store)
         sqlite_memory_store.append_items(ws_id, [{"a": 4}, {"a": 5}])

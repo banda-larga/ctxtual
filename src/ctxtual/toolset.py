@@ -406,9 +406,7 @@ class BoundToolSet:
         return self._toolset.to_tool_schemas(workspace_id=self.workspace_id)
 
     def __repr__(self) -> str:
-        return (
-            f"BoundToolSet(name={self.name!r}, " f"workspace_id={self.workspace_id!r})"
-        )
+        return f"BoundToolSet(name={self.name!r}, workspace_id={self.workspace_id!r})"
 
 
 # Workspace validation (shared by ToolSet tools and Ctx consumers)

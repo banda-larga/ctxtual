@@ -287,7 +287,9 @@ class TestToolSpec:
             return [{"x": 1}, {"x": 2}, {"x": 3}]
 
         ref = load()
-        result = ctx.dispatch_tool_call("items_paginate", {"workspace_id": ref["workspace_id"]})
+        result = ctx.dispatch_tool_call(
+            "items_paginate", {"workspace_id": ref["workspace_id"]}
+        )
         assert result["result"]["total"] == 3
 
     def test_explicit_name_still_works(self, ctx: Ctx) -> None:

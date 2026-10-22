@@ -65,8 +65,20 @@ target-version = "py311"
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
-ignore = ["E501"]
+select = [
+    "E", "F", "W", "I", "N", "UP", "B", "SIM",
+    "C4", "PIE", "PERF", "RUF", "ASYNC", "PLE", "LOG", "T10", "DTZ", "PT",
+]
+# E501: the formatter sets line length; it leaves long strings and comments.
+# PT018: `assert a and b` in tests is clear enough.
+# PERF401: an explicit loop is often the clearer way to build a list.
+ignore = ["E501", "PT018", "PERF401"]
+# Typographic characters used on purpose in text and docs.
+allowed-confusables = ["–", "σ", "×"]
+
+[tool.ruff.lint.per-file-ignores]
+# Notebooks import after explaining what they import.
+"*.ipynb" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

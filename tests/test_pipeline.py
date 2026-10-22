@@ -9,25 +9,95 @@ from ctxtual.utils import pipeline
 # ── Sample data ───────────────────────────────────────────────────────────
 
 PAPERS = [
-    {"id": 1, "title": "Deep Learning Basics", "author": "Alice", "year": 2021, "citations": 150, "tags": ["ml", "deep-learning"]},
-    {"id": 2, "title": "Transformer Architecture", "author": "Bob", "year": 2022, "citations": 300, "tags": ["ml", "transformers"]},
-    {"id": 3, "title": "Quantum Computing 101", "author": "Carol", "year": 2023, "citations": 50, "tags": ["quantum"]},
-    {"id": 4, "title": "ML in Production", "author": "Alice", "year": 2023, "citations": 200, "tags": ["ml", "production"]},
-    {"id": 5, "title": "Reinforcement Learning", "author": "Bob", "year": 2021, "citations": 120, "tags": ["ml", "rl"]},
-    {"id": 6, "title": "Graph Neural Networks", "author": "Dave", "year": 2022, "citations": 80, "tags": ["ml", "graphs"]},
-    {"id": 7, "title": "NLP with Transformers", "author": "Eve", "year": 2023, "citations": 250, "tags": ["ml", "nlp", "transformers"]},
-    {"id": 8, "title": "Computer Vision Survey", "author": "Alice", "year": 2022, "citations": 180, "tags": ["ml", "cv"]},
-    {"id": 9, "title": "Quantum ML Intersection", "author": "Carol", "year": 2023, "citations": 30, "tags": ["quantum", "ml"]},
-    {"id": 10, "title": "Ethics in AI", "author": "Frank", "year": 2021, "citations": 90, "tags": ["ethics", "ml"]},
+    {
+        "id": 1,
+        "title": "Deep Learning Basics",
+        "author": "Alice",
+        "year": 2021,
+        "citations": 150,
+        "tags": ["ml", "deep-learning"],
+    },
+    {
+        "id": 2,
+        "title": "Transformer Architecture",
+        "author": "Bob",
+        "year": 2022,
+        "citations": 300,
+        "tags": ["ml", "transformers"],
+    },
+    {
+        "id": 3,
+        "title": "Quantum Computing 101",
+        "author": "Carol",
+        "year": 2023,
+        "citations": 50,
+        "tags": ["quantum"],
+    },
+    {
+        "id": 4,
+        "title": "ML in Production",
+        "author": "Alice",
+        "year": 2023,
+        "citations": 200,
+        "tags": ["ml", "production"],
+    },
+    {
+        "id": 5,
+        "title": "Reinforcement Learning",
+        "author": "Bob",
+        "year": 2021,
+        "citations": 120,
+        "tags": ["ml", "rl"],
+    },
+    {
+        "id": 6,
+        "title": "Graph Neural Networks",
+        "author": "Dave",
+        "year": 2022,
+        "citations": 80,
+        "tags": ["ml", "graphs"],
+    },
+    {
+        "id": 7,
+        "title": "NLP with Transformers",
+        "author": "Eve",
+        "year": 2023,
+        "citations": 250,
+        "tags": ["ml", "nlp", "transformers"],
+    },
+    {
+        "id": 8,
+        "title": "Computer Vision Survey",
+        "author": "Alice",
+        "year": 2022,
+        "citations": 180,
+        "tags": ["ml", "cv"],
+    },
+    {
+        "id": 9,
+        "title": "Quantum ML Intersection",
+        "author": "Carol",
+        "year": 2023,
+        "citations": 30,
+        "tags": ["quantum", "ml"],
+    },
+    {
+        "id": 10,
+        "title": "Ethics in AI",
+        "author": "Frank",
+        "year": 2021,
+        "citations": 90,
+        "tags": ["ethics", "ml"],
+    },
 ]
 
 
-@pytest.fixture()
+@pytest.fixture
 def engine():
     return PipelineEngine()
 
 
-@pytest.fixture()
+@pytest.fixture
 def forge_with_pipeline():
     ctx = Ctx(store=MemoryStore())
     pipe_ts = pipeline(ctx, "papers")
@@ -63,9 +133,7 @@ class TestPipelineEngineFilter:
         assert all(100 <= p["citations"] <= 200 for p in result)
 
     def test_in_filter(self, engine):
-        result = engine.execute(
-            PAPERS, [{"filter": {"year": {"$in": [2021, 2023]}}}]
-        )
+        result = engine.execute(PAPERS, [{"filter": {"year": {"$in": [2021, 2023]}}}])
         assert all(p["year"] in (2021, 2023) for p in result)
 
     def test_nin_filter(self, engine):
@@ -79,9 +147,7 @@ class TestPipelineEngineFilter:
         assert all(p["author"] != "Alice" for p in result)
 
     def test_contains_filter(self, engine):
-        result = engine.execute(
-            PAPERS, [{"filter": {"title": {"$contains": "ML"}}}]
-        )
+        result = engine.execute(PAPERS, [{"filter": {"title": {"$contains": "ML"}}}])
         assert all("ML" in p["title"] for p in result)
 
     def test_startswith_filter(self, engine):
@@ -123,9 +189,7 @@ class TestPipelineEngineFilter:
         assert result[0]["title"] == "ML in Production"
 
     def test_not_filter(self, engine):
-        result = engine.execute(
-            PAPERS, [{"filter": {"$not": {"author": "Alice"}}}]
-        )
+        result = engine.execute(PAPERS, [{"filter": {"$not": {"author": "Alice"}}}])
         assert len(result) == 7
 
     def test_dot_notation(self, engine):
@@ -134,9 +198,7 @@ class TestPipelineEngineFilter:
             {"name": "y", "meta": {"score": 5}},
             {"name": "z", "meta": {"score": 20}},
         ]
-        result = engine.execute(
-            data, [{"filter": {"meta.score": {"$gte": 10}}}]
-        )
+        result = engine.execute(data, [{"filter": {"meta.score": {"$gte": 10}}}])
         assert len(result) == 2
 
 
@@ -146,9 +208,7 @@ class TestPipelineEngineSearch:
         assert len(result) == 2
 
     def test_search_dict(self, engine):
-        result = engine.execute(
-            PAPERS, [{"search": {"query": "transformer"}}]
-        )
+        result = engine.execute(PAPERS, [{"search": {"query": "transformer"}}])
         assert len(result) == 2
 
     def test_search_with_fields(self, engine):
@@ -164,9 +224,7 @@ class TestPipelineEngineSearch:
 
 class TestPipelineEngineSort:
     def test_sort_asc(self, engine):
-        result = engine.execute(
-            PAPERS, [{"sort": {"field": "citations"}}]
-        )
+        result = engine.execute(PAPERS, [{"sort": {"field": "citations"}}])
         citations = [p["citations"] for p in result]
         assert citations == sorted(citations)
 
@@ -202,16 +260,12 @@ class TestPipelineEngineSort:
 
 class TestPipelineEngineProjection:
     def test_select(self, engine):
-        result = engine.execute(
-            PAPERS, [{"select": ["title", "author"]}]
-        )
+        result = engine.execute(PAPERS, [{"select": ["title", "author"]}])
         for item in result:
             assert set(item.keys()) == {"title", "author"}
 
     def test_exclude(self, engine):
-        result = engine.execute(
-            PAPERS, [{"exclude": ["tags", "citations"]}]
-        )
+        result = engine.execute(PAPERS, [{"exclude": ["tags", "citations"]}])
         for item in result:
             assert "tags" not in item
             assert "citations" not in item
@@ -501,12 +555,12 @@ class TestComputeAggregates:
 
 class TestPipelineToolSet:
     def test_pipe_tool_exists(self, forge_with_pipeline):
-        ctx, ref, ts = forge_with_pipeline
+        _ctx, _ref, ts = forge_with_pipeline
         assert "papers_pipe" in ts.tool_names
         assert "papers_aggregate" in ts.tool_names
 
     def test_pipe_basic(self, forge_with_pipeline):
-        ctx, ref, ts = forge_with_pipeline
+        ctx, ref, _ts = forge_with_pipeline
         wid = ref["workspace_id"]
         result = ctx.dispatch_tool_call(
             "papers_pipe",
@@ -522,7 +576,7 @@ class TestPipelineToolSet:
         assert result["items"][0]["citations"] >= result["items"][1]["citations"]
 
     def test_pipe_with_limit(self, forge_with_pipeline):
-        ctx, ref, ts = forge_with_pipeline
+        ctx, ref, _ts = forge_with_pipeline
         wid = ref["workspace_id"]
         result = ctx.dispatch_tool_call(
             "papers_pipe",
@@ -540,7 +594,7 @@ class TestPipelineToolSet:
             assert set(item.keys()) == {"title", "citations"}
 
     def test_pipe_count_terminal(self, forge_with_pipeline):
-        ctx, ref, ts = forge_with_pipeline
+        ctx, ref, _ts = forge_with_pipeline
         wid = ref["workspace_id"]
         result = ctx.dispatch_tool_call(
             "papers_pipe",
@@ -552,7 +606,7 @@ class TestPipelineToolSet:
         assert result["count"] == 4
 
     def test_pipe_save_as(self, forge_with_pipeline):
-        ctx, ref, ts = forge_with_pipeline
+        ctx, ref, _ts = forge_with_pipeline
         wid = ref["workspace_id"]
         result = ctx.dispatch_tool_call(
             "papers_pipe",
@@ -571,7 +625,7 @@ class TestPipelineToolSet:
         assert len(saved) == 3
 
     def test_pipe_error_handling(self, forge_with_pipeline):
-        ctx, ref, ts = forge_with_pipeline
+        ctx, ref, _ts = forge_with_pipeline
         wid = ref["workspace_id"]
         result = ctx.dispatch_tool_call(
             "papers_pipe",
@@ -605,7 +659,7 @@ class TestPipelineToolSet:
         assert "error" in result
 
     def test_aggregate_basic(self, forge_with_pipeline):
-        ctx, ref, ts = forge_with_pipeline
+        ctx, ref, _ts = forge_with_pipeline
         wid = ref["workspace_id"]
         result = ctx.dispatch_tool_call(
             "papers_aggregate",
@@ -614,7 +668,7 @@ class TestPipelineToolSet:
         assert result["result"]["count"] == 10
 
     def test_aggregate_grouped(self, forge_with_pipeline):
-        ctx, ref, ts = forge_with_pipeline
+        ctx, ref, _ts = forge_with_pipeline
         wid = ref["workspace_id"]
         result = ctx.dispatch_tool_call(
             "papers_aggregate",

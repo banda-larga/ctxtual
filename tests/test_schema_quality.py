@@ -1,7 +1,7 @@
 """Tests for schema quality improvements (Fix #10)."""
 
 import inspect
-from typing import Any, Literal, Optional, Union  # noqa: UP035
+from typing import Any, Literal, Optional, Union
 
 from ctxtual import Ctx, MemoryStore
 from ctxtual.toolset import (
@@ -201,8 +201,7 @@ class TestBuildParamDescription:
 
     def test_docstring_with_default(self):
         param = inspect.Parameter(
-            "page", inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            annotation=int, default=0
+            "page", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=int, default=0
         )
         desc = _build_param_description("page", param, {"page": "Page number."})
         assert "Page number." in desc
@@ -210,8 +209,7 @@ class TestBuildParamDescription:
 
     def test_docstring_already_mentions_default(self):
         param = inspect.Parameter(
-            "page", inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            annotation=int, default=0
+            "page", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=int, default=0
         )
         desc = _build_param_description(
             "page", param, {"page": "Page number. Default is 0."}
@@ -229,8 +227,7 @@ class TestBuildParamDescription:
 
     def test_well_known_with_default(self):
         param = inspect.Parameter(
-            "size", inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            annotation=int, default=10
+            "size", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=int, default=10
         )
         desc = _build_param_description("size", param, {})
         assert "items per page" in desc.lower()
@@ -246,8 +243,10 @@ class TestBuildParamDescription:
 
     def test_fallback_with_default(self):
         param = inspect.Parameter(
-            "verbose", inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            annotation=bool, default=False
+            "verbose",
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=bool,
+            default=False,
         )
         desc = _build_param_description("verbose", param, {})
         assert "Defaults to False" in desc

@@ -188,9 +188,7 @@ class TestMemoryStoreConcurrency:
             except Exception as e:
                 errors.append(e)
 
-        threads = [
-            threading.Thread(target=appender, args=(i * 2,)) for i in range(10)
-        ]
+        threads = [threading.Thread(target=appender, args=(i * 2,)) for i in range(10)]
         for t in threads:
             t.start()
         for t in threads:
@@ -230,9 +228,13 @@ class TestSQLiteStoreConcurrency:
         store.init_workspace(meta)
         store.set_items("rollback_test", [1, 2, 3])
 
-        with pytest.raises(ValueError, match="boom"), store.transaction():
-            store.set_items("rollback_test", [10, 20, 30])
-            raise ValueError("boom")
+        def fail_inside_transaction():
+            with store.transaction():
+                store.set_items("rollback_test", [10, 20, 30])
+                raise ValueError("boom")
+
+        with pytest.raises(ValueError, match="boom"):
+            fail_inside_transaction()
 
         # Data should be unchanged (rolled back)
         items = store.get_items("rollback_test")

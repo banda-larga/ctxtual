@@ -290,9 +290,7 @@ class TestAsyncSupport:
         ctx.store.set_items("ws_1", [10, 20, 30])
 
         @ctx.consumer(workspace_type="data")
-        async def async_process(
-            workspace_id: str, forge_ctx: ConsumerContext
-        ) -> list:
+        async def async_process(workspace_id: str, forge_ctx: ConsumerContext) -> list:
             await asyncio.sleep(0)
             return forge_ctx.get_items()
 

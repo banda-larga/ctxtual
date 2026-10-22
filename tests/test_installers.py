@@ -50,7 +50,12 @@ def write_json(path: Path, data) -> Path:
 
 class TestWrapEntry:
     def test_stdio(self):
-        entry = {"command": "npx", "args": ["-y", "pkg"], "env": {"TOKEN": "t"}, "cwd": "/x"}
+        entry = {
+            "command": "npx",
+            "args": ["-y", "pkg"],
+            "env": {"TOKEN": "t"},
+            "cwd": "/x",
+        }
         new, env_vars = wrap_entry(entry, LAUNCH)
         assert new == {
             "command": "/usr/bin/python3",
@@ -63,7 +68,9 @@ class TestWrapEntry:
         assert unwrap_entry(new) == entry
 
     def test_options_are_written(self):
-        new, _ = wrap_entry({"command": "x"}, LAUNCH, WrapOptions(threshold=5000, ttl=600))
+        new, _ = wrap_entry(
+            {"command": "x"}, LAUNCH, WrapOptions(threshold=5000, ttl=600)
+        )
         assert new["args"][2:7] == ["wrap", "--threshold", "5000", "--ttl", "600"]
 
     def test_remote_without_auth_uses_oauth(self):
@@ -72,34 +79,54 @@ class TestWrapEntry:
         assert "url" not in new
 
     def test_remote_with_auth_header_keeps_secrets_out_of_args(self):
-        entry = {"url": "https://m.example/mcp", "headers": {"Authorization": "Bearer abc", "X-A": "1"}}
+        entry = {
+            "url": "https://m.example/mcp",
+            "headers": {"Authorization": "Bearer abc", "X-A": "1"},
+        }
         new, env_vars = wrap_entry(entry, LAUNCH)
-        assert new["args"][2:] == ["wrap", "https://m.example/mcp",
-                                   "--header", "Authorization: ${CTXTUAL_HEADER_1}",
-                                   "--header", "X-A: ${CTXTUAL_HEADER_2}"]
+        assert new["args"][2:] == [
+            "wrap",
+            "https://m.example/mcp",
+            "--header",
+            "Authorization: ${CTXTUAL_HEADER_1}",
+            "--header",
+            "X-A: ${CTXTUAL_HEADER_2}",
+        ]
         # argv is visible to every local user (ps); env is not.
         assert new["env"] == {"CTXTUAL_HEADER_1": "Bearer abc", "CTXTUAL_HEADER_2": "1"}
         assert not any("abc" in a for a in new["args"])
         assert "headers" not in new and env_vars == []
 
     def test_codex_env_based_credentials(self):
-        entry = {"url": "https://m.example/mcp", "bearer_token_env_var": "API_TOKEN",
-                 "env_http_headers": {"X-Key": "KEY_VAR"}, "http_headers": {"X-R": "eu"}}
+        entry = {
+            "url": "https://m.example/mcp",
+            "bearer_token_env_var": "API_TOKEN",
+            "env_http_headers": {"X-Key": "KEY_VAR"},
+            "http_headers": {"X-R": "eu"},
+        }
         new, env_vars = wrap_entry(entry, LAUNCH, client="codex")
         args = new["args"]
         assert "Authorization: Bearer ${API_TOKEN}" in args
         assert "X-Key: ${KEY_VAR}" in args
-        assert "X-R: ${CTXTUAL_HEADER_1}" in args and new["env"] == {"CTXTUAL_HEADER_1": "eu"}
+        assert "X-R: ${CTXTUAL_HEADER_1}" in args and new["env"] == {
+            "CTXTUAL_HEADER_1": "eu"
+        }
         assert sorted(env_vars) == ["API_TOKEN", "KEY_VAR"]
         assert sorted(new["env_vars"]) == ["API_TOKEN", "KEY_VAR"]
         assert "--oauth" not in args
 
     def test_legacy_sse_is_preserved(self):
-        gem, _ = wrap_entry({"url": "https://g.example/events"}, LAUNCH, client="gemini")
+        gem, _ = wrap_entry(
+            {"url": "https://g.example/events"}, LAUNCH, client="gemini"
+        )
         assert "--sse" in gem["args"]
-        http, _ = wrap_entry({"httpUrl": "https://g.example/mcp"}, LAUNCH, client="gemini")
+        http, _ = wrap_entry(
+            {"httpUrl": "https://g.example/mcp"}, LAUNCH, client="gemini"
+        )
         assert "--sse" not in http["args"]
-        typed, _ = wrap_entry({"type": "sse", "url": "https://x/events"}, LAUNCH, client="cursor")
+        typed, _ = wrap_entry(
+            {"type": "sse", "url": "https://x/events"}, LAUNCH, client="cursor"
+        )
         assert "--sse" in typed["args"] and typed["type"] == "stdio"
         by_path, _ = wrap_entry({"url": "https://x/sse"}, LAUNCH, client="cursor")
         assert "--sse" in by_path["args"]
@@ -111,8 +138,11 @@ class TestWrapEntry:
         assert new["args"][-4:] == ["1", "true", "null", "x"]
 
     def test_vscode_input_variables_go_through_env(self):
-        entry = {"type": "http", "url": "https://c7/mcp",
-                 "headers": {"Authorization": "Bearer ${input:tok}"}}
+        entry = {
+            "type": "http",
+            "url": "https://c7/mcp",
+            "headers": {"Authorization": "Bearer ${input:tok}"},
+        }
         new, _ = wrap_entry(entry, LAUNCH, client="vscode")
         assert new["type"] == "stdio"
         assert new["env"] == {"CTXTUAL_HEADER_1": "Bearer ${input:tok}"}
@@ -128,17 +158,33 @@ class TestWrapEntry:
 JSON_CASES = {
     "claude-desktop": (
         "Library/Application Support/Claude/claude_desktop_config.json",
-        {"mcpServers": {
-            "fs": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/d"]},
-            "gh": {"command": "docker", "args": ["run", "-i", "ghcr.io/github/github-mcp-server"],
-                   "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp"}},
-        }, "globalShortcut": "Ctrl+Space"},
+        {
+            "mcpServers": {
+                "fs": {
+                    "command": "npx",
+                    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/d"],
+                },
+                "gh": {
+                    "command": "docker",
+                    "args": ["run", "-i", "ghcr.io/github/github-mcp-server"],
+                    "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp"},
+                },
+            },
+            "globalShortcut": "Ctrl+Space",
+        },
     ),
     "cursor": (
         ".cursor/mcp.json",
-        {"mcpServers": {"linear": {"url": "https://mcp.linear.app/mcp"},
-                        "api": {"url": "https://a/mcp", "headers": {"Authorization": "Bearer x"}},
-                        "off": {"command": "x", "disabled": True}}},
+        {
+            "mcpServers": {
+                "linear": {"url": "https://mcp.linear.app/mcp"},
+                "api": {
+                    "url": "https://a/mcp",
+                    "headers": {"Authorization": "Bearer x"},
+                },
+                "off": {"command": "x", "disabled": True},
+            }
+        },
     ),
     "windsurf": (
         ".codeium/windsurf/mcp_config.json",
@@ -146,14 +192,23 @@ JSON_CASES = {
     ),
     "vscode": (
         "Library/Application Support/Code/User/mcp.json",
-        {"servers": {"pw": {"type": "stdio", "command": "npx", "args": ["@playwright/mcp"]},
-                     "c7": {"type": "http", "url": "https://c7/mcp"}},
-         "inputs": [{"type": "promptString", "id": "t", "description": "t"}]},
+        {
+            "servers": {
+                "pw": {"type": "stdio", "command": "npx", "args": ["@playwright/mcp"]},
+                "c7": {"type": "http", "url": "https://c7/mcp"},
+            },
+            "inputs": [{"type": "promptString", "id": "t", "description": "t"}],
+        },
     ),
     "gemini": (
         ".gemini/settings.json",
-        {"theme": "dark", "mcpServers": {"r": {"httpUrl": "https://g/mcp", "headers": {"X": "1"}},
-                                         "l": {"command": "python", "args": ["s.py"], "cwd": "/t"}}},
+        {
+            "theme": "dark",
+            "mcpServers": {
+                "r": {"httpUrl": "https://g/mcp", "headers": {"X": "1"}},
+                "l": {"command": "python", "args": ["s.py"], "cwd": "/t"},
+            },
+        },
     ),
 }
 
@@ -222,7 +277,9 @@ class TestInstallRoundTrip:
         assert json.loads(path.read_text()) == original
 
     def test_project_scope(self, home):
-        path = write_json(home / ".cursor" / "mcp.json", {"mcpServers": {"p": {"command": "x"}}})
+        path = write_json(
+            home / ".cursor" / "mcp.json", {"mcpServers": {"p": {"command": "x"}}}
+        )
         config = ConfigFile(get_client("cursor"), "project")
         assert config.path == path  # cwd is home in this fixture
         with pytest.raises(InstallError, match="no 'local' scope"):
@@ -231,7 +288,10 @@ class TestInstallRoundTrip:
 
 class TestEditsAndFiles:
     def test_reinstall_after_manual_edit_restores_the_new_entry(self, home):
-        path = write_json(home / ".cursor" / "mcp.json", {"mcpServers": {"s": {"command": "old", "args": ["v1"]}}})
+        path = write_json(
+            home / ".cursor" / "mcp.json",
+            {"mcpServers": {"s": {"command": "old", "args": ["v1"]}}},
+        )
         config = ConfigFile(get_client("cursor"))
         install(config, launch=LAUNCH)
         new_entry = {"command": "new", "args": ["v2"], "env": {"K": "new"}}
@@ -242,7 +302,9 @@ class TestEditsAndFiles:
 
     def test_edits_to_the_wrapped_entry_survive_uninstall(self, home):
         original = {"command": "srv", "args": ["a"], "env": {"TOKEN": "old"}}
-        path = write_json(home / ".cursor" / "mcp.json", {"mcpServers": {"s": original}})
+        path = write_json(
+            home / ".cursor" / "mcp.json", {"mcpServers": {"s": original}}
+        )
         config = ConfigFile(get_client("cursor"))
         install(config, launch=LAUNCH)
         data = json.loads(path.read_text())
@@ -252,21 +314,31 @@ class TestEditsAndFiles:
         changes, _ = uninstall(config)
         assert "kept your edits" in changes[0].reason
         assert json.loads(path.read_text())["mcpServers"]["s"] == {
-            "command": "srv", "args": ["a", "b"], "env": {"TOKEN": "rotated"}}
+            "command": "srv",
+            "args": ["a", "b"],
+            "env": {"TOKEN": "rotated"},
+        }
 
     def test_header_env_is_removed_again_on_uninstall_after_edit(self, home):
         original = {"url": "https://a/mcp", "headers": {"Authorization": "Bearer x"}}
-        path = write_json(home / ".cursor" / "mcp.json", {"mcpServers": {"a": original}})
+        path = write_json(
+            home / ".cursor" / "mcp.json", {"mcpServers": {"a": original}}
+        )
         config = ConfigFile(get_client("cursor"))
         install(config, launch=LAUNCH)
         data = json.loads(path.read_text())
         data["mcpServers"]["a"]["env"]["EXTRA"] = "1"
         write_json(path, data)
         uninstall(config)
-        assert json.loads(path.read_text())["mcpServers"]["a"] == {**original, "env": {"EXTRA": "1"}}
+        assert json.loads(path.read_text())["mcpServers"]["a"] == {
+            **original,
+            "env": {"EXTRA": "1"},
+        }
 
     def test_symlinked_config_stays_a_symlink(self, home):
-        real = write_json(home / "dotfiles" / "mcp.json", {"mcpServers": {"s": {"command": "x"}}})
+        real = write_json(
+            home / "dotfiles" / "mcp.json", {"mcpServers": {"s": {"command": "x"}}}
+        )
         link = home / ".cursor" / "mcp.json"
         link.parent.mkdir()
         link.symlink_to(real)
@@ -275,7 +347,9 @@ class TestEditsAndFiles:
         assert link.is_symlink()
         assert is_wrapped(json.loads(real.read_text())["mcpServers"]["s"])
         uninstall(config)
-        assert link.is_symlink() and json.loads(real.read_text())["mcpServers"]["s"] == {"command": "x"}
+        assert link.is_symlink() and json.loads(real.read_text())["mcpServers"][
+            "s"
+        ] == {"command": "x"}
 
     def test_backups_are_never_overwritten(self, home):
         pristine = {"mcpServers": {"a": {"command": "x"}, "b": {"command": "y"}}}
@@ -294,21 +368,28 @@ class TestEditsAndFiles:
         assert config.servers() == {}
         config.write({"n": {"command": "x"}})
         assert json.loads(path.read_text())["mcpServers"] == {"n": {"command": "x"}}
-        write_json(path, {"mcpServers": {"_comment": "my servers", "s": {"command": "x"}}})
+        write_json(
+            path, {"mcpServers": {"_comment": "my servers", "s": {"command": "x"}}}
+        )
         changes, _ = install(config, launch=LAUNCH)
-        assert {c.server: c.action for c in changes} == {"_comment": "skip", "s": "wrap"}
+        assert {c.server: c.action for c in changes} == {
+            "_comment": "skip",
+            "s": "wrap",
+        }
         uninstall(config)
         assert json.loads(path.read_text())["mcpServers"]["_comment"] == "my servers"
 
     def test_added_remote_server_is_left_alone_by_uninstall(self, home, capsys):
         write_json(home / ".cursor" / "mcp.json", {"mcpServers": {}})
-        assert main(["add", "cursor", "r", "https://r/mcp", "--launcher", "python"]) == 0
+        assert (
+            main(["add", "cursor", "r", "https://r/mcp", "--launcher", "python"]) == 0
+        )
         changes, _ = uninstall(ConfigFile(get_client("cursor")))
         assert changes[0].action == "skip" and "ctxtual install" in changes[0].reason
 
 
 class TestCodex:
-    TOML = '''model = "gpt-5.5"  # keep me
+    TOML = """model = "gpt-5.5"  # keep me
 
 # docs server
 [mcp_servers.docs]
@@ -325,7 +406,7 @@ bearer_token_env_var = "API_TOKEN"
 
 [profiles.fast]
 model = "gpt-5.5-mini"
-'''
+"""
 
     def test_round_trip(self, home):
         import tomllib
@@ -378,15 +459,24 @@ model = "gpt-5.5-mini"
         path.write_text('mcp_servers = { foo = { command = "npx", args = ["a"] } }\n')
         with pytest.raises(InstallError, match="inline table"):
             install(ConfigFile(get_client("codex")), launch=LAUNCH)
-        assert path.read_text() == 'mcp_servers = { foo = { command = "npx", args = ["a"] } }\n'
+        assert (
+            path.read_text()
+            == 'mcp_servers = { foo = { command = "npx", args = ["a"] } }\n'
+        )
         assert not list((home / ".ctxtual" / "installs").glob("*.json"))
 
 
 class TestClaudeCode:
     def test_uses_the_claude_cli(self, home, monkeypatch):
-        write_json(home / ".claude.json", {"mcpServers": {"gh": {"type": "stdio", "command": "npx",
-                                                                  "args": ["gh-mcp"]}},
-                                           "numStartups": 3})
+        write_json(
+            home / ".claude.json",
+            {
+                "mcpServers": {
+                    "gh": {"type": "stdio", "command": "npx", "args": ["gh-mcp"]}
+                },
+                "numStartups": 3,
+            },
+        )
         calls = []
 
         class Done:
@@ -407,9 +497,17 @@ class TestClaudeCode:
         assert json.loads((home / ".claude.json").read_text())["numStartups"] == 3
         assert list(home.glob(".claude.json.ctxtual-backup-*"))
 
-    def test_uninstall_restores_remote_types_and_rolls_back_failures(self, home, monkeypatch):
-        remote = {"type": "http", "url": "https://r/mcp", "headers": {"Authorization": "Bearer t"}}
-        config_path = write_json(home / ".claude.json", {"mcpServers": {"remote": remote}})
+    def test_uninstall_restores_remote_types_and_rolls_back_failures(
+        self, home, monkeypatch
+    ):
+        remote = {
+            "type": "http",
+            "url": "https://r/mcp",
+            "headers": {"Authorization": "Bearer t"},
+        }
+        config_path = write_json(
+            home / ".claude.json", {"mcpServers": {"remote": remote}}
+        )
         added = []
 
         class Result:
@@ -439,7 +537,7 @@ class TestClaudeCode:
         assert added[-1] == remote  # type http again, not stdio
         # a failing add puts the previous entry back and reports it
         fail_next["on"] = True
-        with pytest.raises(InstallError, match="invalid config.*put back"):
+        with pytest.raises(InstallError, match=r"invalid config.*put back"):
             install(config, launch=LAUNCH)
         assert added[-1] == remote
 
@@ -449,7 +547,10 @@ class TestClaudeCode:
 
 class TestLinks:
     def test_cursor_link_round_trips(self):
-        entry = {"command": "uvx", "args": ["--from", "ctxtual[mcp]", "ctxtual", "wrap", "x?y=+/"]}
+        entry = {
+            "command": "uvx",
+            "args": ["--from", "ctxtual[mcp]", "ctxtual", "wrap", "x?y=+/"],
+        }
         url = cursor_link("my server", entry)
         query = parse_qs(urlparse(url).query)
         assert query["name"] == ["my server"]
@@ -458,14 +559,23 @@ class TestLinks:
     def test_vscode_link(self):
         url = vscode_link("s", {"command": "uvx", "args": ["a"]})
         payload = json.loads(unquote(url.split("?", 1)[1]))
-        assert payload == {"name": "s", "type": "stdio", "command": "uvx", "args": ["a"]}
+        assert payload == {
+            "name": "s",
+            "type": "stdio",
+            "command": "uvx",
+            "args": ["a"],
+        }
 
 
 class TestLauncher:
     def test_python_and_portable(self):
         assert installers.launcher("python") == [sys.executable, "-m", "ctxtual"]
         assert installers.launcher("uvx", portable=True) == [
-            "uvx", "--from", "ctxtual[mcp]", "ctxtual"]
+            "uvx",
+            "--from",
+            "ctxtual[mcp]",
+            "ctxtual",
+        ]
 
     def test_missing_uvx(self, monkeypatch):
         monkeypatch.setattr(installers.shutil, "which", lambda name: None)
@@ -481,7 +591,10 @@ class TestCli:
     def test_install_status_uninstall(self, home, capsys):
         rel, original = JSON_CASES["cursor"]
         path = write_json(home / rel, original)
-        assert main(["install", "cursor", "--launcher", "python", "--threshold", "4000"]) == 0
+        assert (
+            main(["install", "cursor", "--launcher", "python", "--threshold", "4000"])
+            == 0
+        )
         out = capsys.readouterr().out
         assert "2 server(s) wrapped" in out and "Restart Cursor" in out
         data = json.loads(path.read_text())["mcpServers"]
@@ -498,34 +611,96 @@ class TestCli:
     def test_add_writes_and_refuses_duplicates(self, home, capsys):
         rel, original = JSON_CASES["claude-desktop"]
         path = write_json(home / rel, original)
-        assert main(["add", "claude-desktop", "notion", "https://mcp.notion.com/mcp",
-                     "--launcher", "python"]) == 0
+        assert (
+            main(
+                [
+                    "add",
+                    "claude-desktop",
+                    "notion",
+                    "https://mcp.notion.com/mcp",
+                    "--launcher",
+                    "python",
+                ]
+            )
+            == 0
+        )
         entry = json.loads(path.read_text())["mcpServers"]["notion"]
         assert entry["args"][-2:] == ["https://mcp.notion.com/mcp", "--oauth"]
-        assert main(["add", "claude-desktop", "notion", "https://x/mcp",
-                     "--launcher", "python"]) == 2
+        assert (
+            main(
+                [
+                    "add",
+                    "claude-desktop",
+                    "notion",
+                    "https://x/mcp",
+                    "--launcher",
+                    "python",
+                ]
+            )
+            == 2
+        )
 
     def test_add_print_snippets(self, home, capsys):
-        assert main(["add", "codex", "gh", "https://api.example/mcp",
-                     "-H", "Authorization: Bearer ${GH_TOKEN}", "--print"]) == 0
+        assert (
+            main(
+                [
+                    "add",
+                    "codex",
+                    "gh",
+                    "https://api.example/mcp",
+                    "-H",
+                    "Authorization: Bearer ${GH_TOKEN}",
+                    "--print",
+                ]
+            )
+            == 0
+        )
         out = capsys.readouterr().out
-        assert 'env_vars = ["GH_TOKEN"]' in out and "GH_TOKEN from its environment" in out
-        assert main(["add", "cursor", "fs", "--print", "--", "npx", "-y", "fs-mcp"]) == 0
+        assert (
+            'env_vars = ["GH_TOKEN"]' in out and "GH_TOKEN from its environment" in out
+        )
+        assert (
+            main(["add", "cursor", "fs", "--print", "--", "npx", "-y", "fs-mcp"]) == 0
+        )
         out = capsys.readouterr().out
-        assert out.startswith("Install link:\ncursor://anysphere.cursor-deeplink/mcp/install?")
+        assert out.startswith(
+            "Install link:\ncursor://anysphere.cursor-deeplink/mcp/install?"
+        )
         assert '"command": "uvx"' in out  # portable, not a local absolute path
 
     def test_dry_run_hides_secrets(self, home, capsys):
-        write_json(home / ".cursor" / "mcp.json",
-                   {"mcpServers": {"a": {"url": "https://a/mcp", "headers": {"Authorization": "Bearer s3cret"}}}})
+        write_json(
+            home / ".cursor" / "mcp.json",
+            {
+                "mcpServers": {
+                    "a": {
+                        "url": "https://a/mcp",
+                        "headers": {"Authorization": "Bearer s3cret"},
+                    }
+                }
+            },
+        )
         assert main(["install", "cursor", "--dry-run", "--launcher", "python"]) == 0
         out = capsys.readouterr().out
         assert "s3cret" not in out and "CTXTUAL_HEADER_1" in out
 
     def test_add_validates_headers(self, home, capsys):
         write_json(home / ".cursor" / "mcp.json", {"mcpServers": {}})
-        assert main(["add", "cursor", "x", "https://x/mcp", "-H", "Authorization=Bearer t",
-                     "--launcher", "python"]) == 2
+        assert (
+            main(
+                [
+                    "add",
+                    "cursor",
+                    "x",
+                    "https://x/mcp",
+                    "-H",
+                    "Authorization=Bearer t",
+                    "--launcher",
+                    "python",
+                ]
+            )
+            == 2
+        )
         assert "bad --header" in capsys.readouterr().err
 
     def test_wrap_needs_a_target(self, capsys):

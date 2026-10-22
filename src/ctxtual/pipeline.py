@@ -82,7 +82,7 @@ import re
 from contextvars import ContextVar
 from re import _constants as _sre_c  # type: ignore[attr-defined]
 from re import _parser as _sre_parser  # type: ignore[attr-defined]
-from typing import Any
+from typing import Any, ClassVar
 
 #: Longest ``$regex`` pattern accepted.
 MAX_REGEX_LENGTH = 200
@@ -123,7 +123,7 @@ class PipelineEngine:
                      ``False``; see the module docs).
     """
 
-    OPERATORS: dict[str, Any] = {}  # populated after class definition
+    OPERATORS: ClassVar[dict[str, Any]] = {}  # populated after class definition
 
     def __init__(self, *, allow_regex: bool = False) -> None:
         self.allow_regex = allow_regex
@@ -633,7 +633,7 @@ def _regex_problem(tree: Any) -> str | None:
         nonlocal unbounded
         for op, av in items:
             if op in _REPEAT_OPS:
-                low, high, sub = av
+                _low, high, sub = av
                 is_unbounded = high == _sre_c.MAXREPEAT
                 if in_unbounded or (in_multi and is_unbounded):
                     return "it repeats a group that itself repeats"

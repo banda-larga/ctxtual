@@ -95,7 +95,9 @@ class TestEndToEnd:
         assert derived["item_count"] == 3
 
         derived_id = derived["workspace_id"]
-        page_resp = filtered_pager.tools["filtered_paginate"](derived_id, page=0, size=10)
+        page_resp = filtered_pager.tools["filtered_paginate"](
+            derived_id, page=0, size=10
+        )
         page = page_resp["result"]
         assert len(page["items"]) == 3
 

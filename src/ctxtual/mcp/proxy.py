@@ -29,7 +29,9 @@ _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 #: package exists to handle.
 DEFAULT_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 
-_max_sse_event: ContextVar[int | None] = ContextVar("ctxtual_max_sse_event", default=None)
+_max_sse_event: ContextVar[int | None] = ContextVar(
+    "ctxtual_max_sse_event", default=None
+)
 
 
 def _install_sse_limit_hook() -> None:
@@ -58,7 +60,10 @@ class LargeResultHttpTransport(StreamableHttpTransport):
     """Streamable HTTP transport that accepts results up to ``max_message_bytes``."""
 
     def __init__(
-        self, *args: Any, max_message_bytes: int = DEFAULT_MAX_MESSAGE_BYTES, **kwargs: Any
+        self,
+        *args: Any,
+        max_message_bytes: int = DEFAULT_MAX_MESSAGE_BYTES,
+        **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.max_message_bytes = max_message_bytes
@@ -120,7 +125,9 @@ def make_transport(
     # to stdio servers.  Forward everything: the client that launched us
     # (Claude Desktop, Cursor, …) put the server's secrets in our env.
     full_env = {**os.environ, **(env or {})}
-    return StdioTransport(command[0], command[1:], env=full_env, cwd=cwd, keep_alive=True)
+    return StdioTransport(
+        command[0], command[1:], env=full_env, cwd=cwd, keep_alive=True
+    )
 
 
 def create_offload_proxy(
@@ -166,14 +173,21 @@ def create_offload_proxy(
     from ``headers``/``oauth``/``env``.
     """
     transport = make_transport(
-        target, headers=headers, oauth=oauth, oauth_scopes=oauth_scopes,
-        env=env, cwd=cwd, sse=sse,
+        target,
+        headers=headers,
+        oauth=oauth,
+        oauth_scopes=oauth_scopes,
+        env=env,
+        cwd=cwd,
+        sse=sse,
     )
     base = ProxyClient(transport, forward_incoming_headers=False)
     if shared_session:
+
         def factory() -> ProxyClient:
             return base
     else:
+
         def factory() -> ProxyClient:
             return base.new()
 
@@ -222,7 +236,9 @@ def _oauth(url: str, scopes: Sequence[str] | None) -> Any:
         token_storage=FileTreeStore(
             data_directory=directory,
             key_sanitization_strategy=FileTreeV1KeySanitizationStrategy(directory),
-            collection_sanitization_strategy=FileTreeV1CollectionSanitizationStrategy(directory),
+            collection_sanitization_strategy=FileTreeV1CollectionSanitizationStrategy(
+                directory
+            ),
         ),
     )
 

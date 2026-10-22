@@ -12,7 +12,9 @@ SCRIPT = ROOT / "scripts" / "release_check.py"
 
 
 def run(*args):
-    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), *args], capture_output=True, text=True
+    )
 
 
 def test_versions_and_changelog_agree():

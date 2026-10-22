@@ -124,4 +124,4 @@ class MemoryStore(BaseStore):
     def __repr__(self) -> str:
         with self._lock:
             types = sorted({m.workspace_type for m in self._meta.values()})
-            return f"MemoryStore(workspaces={len(self._meta)}, " f"types={types})"
+            return f"MemoryStore(workspaces={len(self._meta)}, types={types})"

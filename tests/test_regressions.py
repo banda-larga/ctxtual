@@ -74,7 +74,9 @@ class TestSearchDoesNotMatchInternals:
     def test_query_matching_workspace_type_returns_nothing(self, store):
         ctx, load = _papers_ctx(store)
         ws = load()["workspace_id"]  # "papers_..."
-        r = ctx.dispatch_tool_call("papers_search", {"workspace_id": ws, "query": "papers"})
+        r = ctx.dispatch_tool_call(
+            "papers_search", {"workspace_id": ws, "query": "papers"}
+        )
         assert r["returned"] == 0
 
     def test_query_matching_item_index_returns_nothing(self, store):
@@ -112,7 +114,9 @@ class TestSearchDoesNotMatchInternals:
             "papers_search", {"workspace_id": ws, "query": "transformers"}
         )
         assert r["returned"] == 0
-        r = ctx.dispatch_tool_call("papers_search", {"workspace_id": ws, "query": "bert"})
+        r = ctx.dispatch_tool_call(
+            "papers_search", {"workspace_id": ws, "query": "bert"}
+        )
         assert [m["title"] for m in r["matches"]] == ["BERT"]
 
     def test_multi_term_query_matches_any_term(self, store):
@@ -126,7 +130,9 @@ class TestSearchDoesNotMatchInternals:
     def test_mid_word_fragment_still_found(self, store):
         ctx, load = _papers_ctx(store)
         ws = load()["workspace_id"]
-        r = ctx.dispatch_tool_call("papers_search", {"workspace_id": ws, "query": "esNe"})
+        r = ctx.dispatch_tool_call(
+            "papers_search", {"workspace_id": ws, "query": "esNe"}
+        )
         assert [m["title"] for m in r["matches"]] == ["ResNet"]
 
     def test_search_is_scoped_to_workspace(self, store):
@@ -139,7 +145,9 @@ class TestSearchDoesNotMatchInternals:
             return [{"title": "Unrelated BERT clone"}]
 
         other()
-        r = ctx.dispatch_tool_call("papers_search", {"workspace_id": ws1, "query": "clone"})
+        r = ctx.dispatch_tool_call(
+            "papers_search", {"workspace_id": ws1, "query": "clone"}
+        )
         assert r["returned"] == 0
 
     def test_symbol_terms_are_not_prefix_matched(self, store):
@@ -152,7 +160,7 @@ class TestSearchDoesNotMatchInternals:
         ws = langs()["workspace_id"]
         for q, want in (("C++", "Intro to C++"), ("C#", "C# basics")):
             r = ctx.dispatch_tool_call("langs_search", {"workspace_id": ws, "query": q})
-            assert [m["t"] for m in r["matches"]][0] == want
+            assert next(m["t"] for m in r["matches"]) == want
             assert "cats and dogs" not in [m["t"] for m in r["matches"]]
 
     def test_nul_in_query_is_harmless(self, store):
@@ -205,7 +213,9 @@ class TestSQLiteFtsMigration:
         conn.close()
 
         store = SQLiteStore(path)
-        assert store.search_items("papers_old", "legacy") == [{"title": "Legacy document"}]
+        assert store.search_items("papers_old", "legacy") == [
+            {"title": "Legacy document"}
+        ]
         assert store.search_items("papers_old", "papers") == []
         meta = store.get_meta("papers_old")
         assert meta.session_id is None and meta.data_shape == ""
@@ -219,20 +229,26 @@ class TestMixedShapeToolsets:
     def test_list_tools_work_when_text_tools_share_the_name(self, store):
         ctx = Ctx(store=store)
 
-        @ctx.producer(workspace_type="doc", toolsets=[paginator(ctx), text_content(ctx)])
+        @ctx.producer(
+            workspace_type="doc", toolsets=[paginator(ctx), text_content(ctx)]
+        )
         def fetch(as_text: bool = False):
             return "some text" if as_text else [{"a": 1}, {"a": 2}]
 
         ref = fetch()
         tools = [t.split("(")[0] for t in ref["available_tools"]]
         assert "doc_paginate" in tools and "doc_read_page" not in tools
-        page = ctx.dispatch_tool_call("doc_paginate", {"workspace_id": ref["workspace_id"]})
+        page = ctx.dispatch_tool_call(
+            "doc_paginate", {"workspace_id": ref["workspace_id"]}
+        )
         assert page["result"]["total"] == 2
 
         ref = fetch(as_text=True)
         tools = [t.split("(")[0] for t in ref["available_tools"]]
         assert "doc_read_page" in tools and "doc_paginate" not in tools
-        page = ctx.dispatch_tool_call("doc_read_page", {"workspace_id": ref["workspace_id"]})
+        page = ctx.dispatch_tool_call(
+            "doc_read_page", {"workspace_id": ref["workspace_id"]}
+        )
         assert page["result"]["text"] == "some text"
 
 
@@ -330,7 +346,6 @@ class TestDispatchNeverRaisesOnLlmMistakes:
         r = ctx.dispatch_tool_call("clean", {"workspace_id": ["x"], "factor": 2})
         assert "workspace_id" in r["error"]
 
-
     def test_producer_exception_becomes_error_dict(self):
         ctx = Ctx()
 
@@ -352,7 +367,7 @@ class TestDispatchNeverRaisesOnLlmMistakes:
         assert r["item_count"] == 3 and r["max_items"] == 2
 
     def test_bad_arguments_report_expected_parameters(self):
-        ctx, load = _papers_ctx(MemoryStore())
+        ctx, _load = _papers_ctx(MemoryStore())
         r = ctx.dispatch_tool_call("load_papers", {"bogus": 1})
         assert "Invalid arguments" in r["error"]
         assert "query" in r["expected_parameters"]
@@ -374,7 +389,7 @@ class TestDispatchNeverRaisesOnLlmMistakes:
         def boom() -> list:
             raise ValueError("bad")
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="bad"):
             ctx.dispatch_tool_call("boom", {})
 
     def test_key_template_must_reference_parameters(self):
@@ -519,7 +534,7 @@ class TestOverwriteProtection:
         assert len(store.get_items(pid)) == 2
 
     def test_save_as_cannot_squat_a_producer_key(self, store):
-        ctx, _, pub, named = self._ctx(store)
+        ctx, _, pub, _named = self._ctx(store)
         pid = pub()["workspace_id"]
         ctx.dispatch_tool_call(
             "pub_pipe", {"workspace_id": pid, "steps": [], "save_as": "report"}
@@ -584,7 +599,7 @@ class TestSessions:
         return ctx, notes, shared
 
     def test_other_sessions_workspaces_are_invisible(self, store):
-        ctx, notes, _ = self._ctx(store)
+        ctx, _notes, _ = self._ctx(store)
         a = ctx.dispatch_tool_call("notes", {"topic": "ml"}, session_id="alice")
         ws_a = a["workspace_id"]
         r = ctx.dispatch_tool_call(
@@ -598,7 +613,7 @@ class TestSessions:
         assert ok["result"]["total"] == 1
 
     def test_error_lists_only_own_workspaces(self, store):
-        ctx, notes, _ = self._ctx(store)
+        ctx, _notes, _ = self._ctx(store)
         ws_a = ctx.dispatch_tool_call("notes", {"topic": "a"}, session_id="alice")
         ws_b = ctx.dispatch_tool_call("notes", {"topic": "b"}, session_id="bob")
         r = ctx.dispatch_tool_call(
@@ -608,7 +623,7 @@ class TestSessions:
         assert ws_a["workspace_id"] not in json.dumps(r)
 
     def test_same_key_in_two_sessions_does_not_collide(self, store):
-        ctx, notes, _ = self._ctx(store)
+        ctx, _notes, _ = self._ctx(store)
         a = ctx.dispatch_tool_call("notes", {"topic": "ml"}, session_id="alice")
         b = ctx.dispatch_tool_call("notes", {"topic": "ml"}, session_id="bob")
         assert a["workspace_id"] != b["workspace_id"]
@@ -641,7 +656,7 @@ class TestSessions:
         assert store.get_items(ws) == [{"topic": "public"}]
 
     def test_save_as_is_namespaced(self, store):
-        ctx, notes, _ = self._ctx(store)
+        ctx, _notes, _ = self._ctx(store)
         a = ctx.dispatch_tool_call("notes", {"topic": "x"}, session_id="alice")
         b = ctx.dispatch_tool_call("notes", {"topic": "x"}, session_id="bob")
         ra = ctx.dispatch_tool_call(
@@ -663,7 +678,7 @@ class TestSessions:
         assert store.get_meta(ref["workspace_id"]).session_id == "carol"
 
     def test_consumer_get_items_respects_session(self, store):
-        ctx, notes, _ = self._ctx(store)
+        ctx, _notes, _ = self._ctx(store)
 
         @ctx.consumer(workspace_type="notes", produces="notes")
         def peek(workspace_id: str, other_id: str, ctx: ConsumerContext):
@@ -697,7 +712,9 @@ class TestResultCaps:
 
     def test_paginate_size_is_clamped(self, store):
         ctx, ws = self._ctx(store)
-        r = ctx.dispatch_tool_call("rows_paginate", {"workspace_id": ws, "size": 10_000})
+        r = ctx.dispatch_tool_call(
+            "rows_paginate", {"workspace_id": ws, "size": 10_000}
+        )
         assert len(r["result"]["items"]) == 100
 
     def test_get_slice_is_clamped_and_says_so(self, store):
@@ -738,12 +755,19 @@ class TestResultCaps:
     def test_kv_value_is_previewed_when_huge(self, store):
         ctx = Ctx(store=store)
 
-        @ctx.producer(workspace_type="cfg", toolsets=[kv_reader(ctx, max_value_chars=100)])
+        @ctx.producer(
+            workspace_type="cfg", toolsets=[kv_reader(ctx, max_value_chars=100)]
+        )
         def cfg() -> dict:
             return {"small": 1, "big": list(range(1000))}
 
         ws = cfg()["workspace_id"]
-        assert ctx.dispatch_tool_call("cfg_get_value", {"workspace_id": ws, "key": "small"}) == 1
+        assert (
+            ctx.dispatch_tool_call(
+                "cfg_get_value", {"workspace_id": ws, "key": "small"}
+            )
+            == 1
+        )
         r = ctx.dispatch_tool_call("cfg_get_value", {"workspace_id": ws, "key": "big"})
         assert r["truncated"] and len(r["preview"]) == 100 and r["length"] == 1000
 
@@ -860,7 +884,10 @@ class TestRegexGuard:
 class TestGenericToolsets:
     def test_one_toolset_serves_many_types(self, store):
         ctx = Ctx(store=store)
-        data = [paginator(ctx, "data", enforce_type=False), pipeline(ctx, "data", enforce_type=False)]
+        data = [
+            paginator(ctx, "data", enforce_type=False),
+            pipeline(ctx, "data", enforce_type=False),
+        ]
 
         @ctx.producer(workspace_type="papers", toolsets=data)
         def papers() -> list[dict]:
@@ -899,7 +926,10 @@ class TestSQLiteThreads:
         store.close()
 
     def test_failed_write_does_not_lock_other_threads(self, tmp_path):
-        for store in (SQLiteStore(":memory:"), SQLiteStore(tmp_path / "y.db", busy_timeout=200)):
+        for store in (
+            SQLiteStore(":memory:"),
+            SQLiteStore(tmp_path / "y.db", busy_timeout=200),
+        ):
             ctx = Ctx(store=store)
 
             @ctx.producer(workspace_type="t", toolsets=[], key="ws")
@@ -969,8 +999,17 @@ class TestIntegrationRobustness:
                 {
                     "message": {
                         "tool_calls": [
-                            {"id": "1", "function": {"name": "load_papers", "arguments": "{oops"}},
-                            {"id": "2", "function": {"name": "load_papers", "arguments": "{}"}},
+                            {
+                                "id": "1",
+                                "function": {
+                                    "name": "load_papers",
+                                    "arguments": "{oops",
+                                },
+                            },
+                            {
+                                "id": "2",
+                                "function": {"name": "load_papers", "arguments": "{}"},
+                            },
                         ]
                     }
                 }
@@ -984,9 +1023,16 @@ class TestIntegrationRobustness:
         ctx, _ = _papers_ctx(MemoryStore())
         response = {
             "choices": [
-                {"message": {"tool_calls": [
-                    {"id": "1", "function": {"name": "load_papers", "arguments": "{}"}}
-                ]}}
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "1",
+                                "function": {"name": "load_papers", "arguments": "{}"},
+                            }
+                        ]
+                    }
+                }
             ]
         }
         content = handle_tool_calls(ctx, response, max_content_length=120)[0]["content"]
@@ -994,15 +1040,31 @@ class TestIntegrationRobustness:
 
     def test_openai_tiny_limit_is_respected(self):
         ctx, _ = _papers_ctx(MemoryStore())
-        response = {"choices": [{"message": {"tool_calls": [
-            {"id": "1", "function": {"name": "load_papers", "arguments": "{}"}}
-        ]}}]}
-        assert len(handle_tool_calls(ctx, response, max_content_length=10)[0]["content"]) == 10
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "1",
+                                "function": {"name": "load_papers", "arguments": "{}"},
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+        assert (
+            len(handle_tool_calls(ctx, response, max_content_length=10)[0]["content"])
+            == 10
+        )
 
     def test_anthropic_session_id(self):
         ctx, _ = _papers_ctx(MemoryStore())
         response = {
-            "content": [{"type": "tool_use", "id": "t1", "name": "load_papers", "input": {}}]
+            "content": [
+                {"type": "tool_use", "id": "t1", "name": "load_papers", "input": {}}
+            ]
         }
         block = handle_tool_use(ctx, response, session_id="s9")[0]
         ws = json.loads(block["content"])["workspace_id"]
@@ -1019,7 +1081,10 @@ class TestConsumerExpose:
             return len(ctx.get_items())
 
         assert all(t["function"]["name"] != "internal" for t in ctx.get_tools())
-        assert "not found" in ctx.dispatch_tool_call("internal", {"workspace_id": "x"})["error"]
+        assert (
+            "not found"
+            in ctx.dispatch_tool_call("internal", {"workspace_id": "x"})["error"]
+        )
 
 
 class TestConsumerContextDetection:

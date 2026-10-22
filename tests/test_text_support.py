@@ -4,7 +4,6 @@ Covers: chunk_text, split_sections, split_markdown_sections transforms,
 text_content toolset, scalar _count fix, and shape mismatch guard.
 """
 
-
 import pytest
 
 from ctxtual import (
@@ -208,13 +207,16 @@ class TestSplitMarkdownSections:
 
         # Pipeline works on sections
         ws_id = ref["workspace_id"]
-        result = ctx.dispatch_tool_call("md_pipe", {
-            "workspace_id": ws_id,
-            "steps": [
-                {"filter": {"level": 1}},
-                {"select": ["heading"]},
-            ],
-        })
+        result = ctx.dispatch_tool_call(
+            "md_pipe",
+            {
+                "workspace_id": ws_id,
+                "steps": [
+                    {"filter": {"level": 1}},
+                    {"select": ["heading"]},
+                ],
+            },
+        )
         assert "error" not in result
         assert result["count"] >= 2
 
@@ -233,11 +235,14 @@ class TestTextContent:
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
 
-        result = ctx.dispatch_tool_call("doc_read_page", {
-            "workspace_id": ws_id,
-            "page": 0,
-            "chars_per_page": 1000,
-        })
+        result = ctx.dispatch_tool_call(
+            "doc_read_page",
+            {
+                "workspace_id": ws_id,
+                "page": 0,
+                "chars_per_page": 1000,
+            },
+        )
         # Unwrap hint envelope
         data = result.get("result", result)
         assert len(data["text"]) == 1000
@@ -255,11 +260,14 @@ class TestTextContent:
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = ctx.dispatch_tool_call("doc_read_page", {
-            "workspace_id": ws_id,
-            "page": 4,
-            "chars_per_page": 1000,
-        })
+        result = ctx.dispatch_tool_call(
+            "doc_read_page",
+            {
+                "workspace_id": ws_id,
+                "page": 4,
+                "chars_per_page": 1000,
+            },
+        )
         data = result.get("result", result)
         assert data["has_next"] is False
         assert data["has_prev"] is True
@@ -273,10 +281,13 @@ class TestTextContent:
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = ctx.dispatch_tool_call("doc_read_page", {
-            "workspace_id": ws_id,
-            "page": 99,
-        })
+        result = ctx.dispatch_tool_call(
+            "doc_read_page",
+            {
+                "workspace_id": ws_id,
+                "page": 99,
+            },
+        )
         data = result.get("result", result)
         assert "error" in data
 
@@ -289,10 +300,13 @@ class TestTextContent:
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = ctx.dispatch_tool_call("doc_search_in_text", {
-            "workspace_id": ws_id,
-            "query": "neural networks",
-        })
+        result = ctx.dispatch_tool_call(
+            "doc_search_in_text",
+            {
+                "workspace_id": ws_id,
+                "query": "neural networks",
+            },
+        )
         assert result["match_count"] == 1
         assert "neural networks" in result["matches"][0]["context"].lower()
 
@@ -305,10 +319,13 @@ class TestTextContent:
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = ctx.dispatch_tool_call("doc_search_in_text", {
-            "workspace_id": ws_id,
-            "query": "HELLO",
-        })
+        result = ctx.dispatch_tool_call(
+            "doc_search_in_text",
+            {
+                "workspace_id": ws_id,
+                "query": "HELLO",
+            },
+        )
         assert result["match_count"] == 1
 
     def test_search_no_results(self, ctx):
@@ -320,10 +337,13 @@ class TestTextContent:
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = ctx.dispatch_tool_call("doc_search_in_text", {
-            "workspace_id": ws_id,
-            "query": "nonexistent",
-        })
+        result = ctx.dispatch_tool_call(
+            "doc_search_in_text",
+            {
+                "workspace_id": ws_id,
+                "query": "nonexistent",
+            },
+        )
         assert result["match_count"] == 0
 
     def test_get_length(self, ctx):
@@ -335,9 +355,12 @@ class TestTextContent:
 
         ref = fetch_doc()
         ws_id = ref["workspace_id"]
-        result = ctx.dispatch_tool_call("doc_get_length", {
-            "workspace_id": ws_id,
-        })
+        result = ctx.dispatch_tool_call(
+            "doc_get_length",
+            {
+                "workspace_id": ws_id,
+            },
+        )
         assert result["chars"] == len("Hello\nWorld\n\nThird line")
         assert result["words"] == 4
         assert result["lines"] == 4

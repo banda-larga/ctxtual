@@ -18,8 +18,13 @@ def check_version(tag: str) -> str:
         sys.exit(f"tag {tag!r} is not of the form vX.Y.Z")
     version = tag[1:]
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
-    init = re.search(r'__version__ = "([^"]+)"', (ROOT / "src/ctxtual/__init__.py").read_text())
-    found = {"pyproject.toml": project, "src/ctxtual/__init__.py": init.group(1) if init else None}
+    init = re.search(
+        r'__version__ = "([^"]+)"', (ROOT / "src/ctxtual/__init__.py").read_text()
+    )
+    found = {
+        "pyproject.toml": project,
+        "src/ctxtual/__init__.py": init.group(1) if init else None,
+    }
     wrong = {where: v for where, v in found.items() if v != version}
     if wrong:
         sys.exit(f"tag {tag} does not match the package version: {wrong}")
@@ -30,7 +35,9 @@ def check_version(tag: str) -> str:
 
 def changelog_section(version: str) -> str:
     text = (ROOT / "CHANGELOG.md").read_text()
-    match = re.search(rf"^## {re.escape(version)}\s*$(.*?)(?=^## |\Z)", text, re.M | re.S)
+    match = re.search(
+        rf"^## {re.escape(version)}\s*$(.*?)(?=^## |\Z)", text, re.M | re.S
+    )
     return match.group(1).strip() if match else ""
 
 
@@ -44,5 +51,7 @@ if __name__ == "__main__":
         body = changelog_section(version)
         if not body:
             sys.exit(f"CHANGELOG.md has no '## {version}' section")
-        print(f"{body}\n\n**Install:** `pip install \"ctxtual[mcp]=={version}\"` · "
-              f"[PyPI](https://pypi.org/project/ctxtual/{version}/)")
+        print(
+            f'{body}\n\n**Install:** `pip install "ctxtual[mcp]=={version}"` · '
+            f"[PyPI](https://pypi.org/project/ctxtual/{version}/)"
+        )

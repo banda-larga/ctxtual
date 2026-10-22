@@ -10,7 +10,7 @@ from ctxtual.utils import paginator, text_search
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
 
-@pytest.fixture()
+@pytest.fixture
 def forge_with_data():
     """Ctx with a producer, a workspace, and some data."""
     ctx = Ctx(store=MemoryStore())
@@ -221,9 +221,7 @@ class TestOpenAIAdapter:
         from ctxtual.integrations.openai import handle_tool_calls
 
         ctx, _ = forge_with_data
-        tc = _ToolCall(
-            "call_p", "find_docs", json.dumps({"query": "via adapter"})
-        )
+        tc = _ToolCall("call_p", "find_docs", json.dumps({"query": "via adapter"}))
         resp = _Response([_Choice(_Message(tool_calls=[tc]))])
         msgs = handle_tool_calls(ctx, resp)
 
@@ -320,9 +318,7 @@ class TestAnthropicAdapter:
         from ctxtual.integrations.anthropic import has_tool_use
 
         resp = {
-            "content": [
-                {"type": "tool_use", "id": "tu_1", "name": "x", "input": {}}
-            ]
+            "content": [{"type": "tool_use", "id": "tu_1", "name": "x", "input": {}}]
         }
         assert has_tool_use(resp) is True
 
@@ -385,9 +381,7 @@ class TestAnthropicAdapter:
         from ctxtual.integrations.anthropic import handle_tool_use
 
         ctx, _ = forge_with_data
-        resp = _AnthropicResponse(
-            [_AnthropicToolUse("tu_e", "bad_tool", {"x": 1})]
-        )
+        resp = _AnthropicResponse([_AnthropicToolUse("tu_e", "bad_tool", {"x": 1})])
         results = handle_tool_use(ctx, resp)
         assert len(results) == 1
         assert results[0]["is_error"] is True
@@ -413,11 +407,13 @@ class TestAnthropicAdapter:
         resp = _AnthropicResponse(
             [
                 _AnthropicToolUse(
-                    "tu_a", "docs_paginate",
+                    "tu_a",
+                    "docs_paginate",
                     {"workspace_id": wid, "page": 0, "size": 2},
                 ),
                 _AnthropicToolUse(
-                    "tu_b", "docs_paginate",
+                    "tu_b",
+                    "docs_paginate",
                     {"workspace_id": wid, "page": 1, "size": 2},
                 ),
             ]

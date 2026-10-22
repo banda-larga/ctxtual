@@ -81,46 +81,78 @@ CLIENTS: dict[str, Client] = {
     c.name: c
     for c in [
         Client(
-            "claude-desktop", "Claude Desktop", "mcpServers",
+            "claude-desktop",
+            "Claude Desktop",
+            "mcpServers",
             lambda scope: _app_support("Claude") / "claude_desktop_config.json",
             notes="Remote connectors added in Settings → Connectors are not in "
-                  "this file; add them wrapped with `ctxtual add claude-desktop`.",
+            "this file; add them wrapped with `ctxtual add claude-desktop`.",
         ),
         Client(
-            "claude-code", "Claude Code", "mcpServers",
-            lambda scope: (Path.cwd() / ".mcp.json") if scope == "project"
-            else _home() / ".claude.json",
-            fmt="claude-code", scopes=("user", "local", "project"),
+            "claude-code",
+            "Claude Code",
+            "mcpServers",
+            lambda scope: (
+                (Path.cwd() / ".mcp.json")
+                if scope == "project"
+                else _home() / ".claude.json"
+            ),
+            fmt="claude-code",
+            scopes=("user", "local", "project"),
             notes="Claude Code already saves results over 50,000 characters to "
-                  "files; ctxtual adds a lower threshold and query tools.",
+            "files; ctxtual adds a lower threshold and query tools.",
         ),
         Client(
-            "cursor", "Cursor", "mcpServers",
-            lambda scope: (Path.cwd() / ".cursor" / "mcp.json") if scope == "project"
-            else _home() / ".cursor" / "mcp.json",
+            "cursor",
+            "Cursor",
+            "mcpServers",
+            lambda scope: (
+                (Path.cwd() / ".cursor" / "mcp.json")
+                if scope == "project"
+                else _home() / ".cursor" / "mcp.json"
+            ),
             scopes=("user", "project"),
         ),
         Client(
-            "windsurf", "Windsurf", "mcpServers",
+            "windsurf",
+            "Windsurf",
+            "mcpServers",
             lambda scope: _home() / ".codeium" / "windsurf" / "mcp_config.json",
         ),
         Client(
-            "vscode", "VS Code", "servers",
-            lambda scope: (Path.cwd() / ".vscode" / "mcp.json") if scope == "project"
-            else _app_support("Code") / "User" / "mcp.json",
+            "vscode",
+            "VS Code",
+            "servers",
+            lambda scope: (
+                (Path.cwd() / ".vscode" / "mcp.json")
+                if scope == "project"
+                else _app_support("Code") / "User" / "mcp.json"
+            ),
             scopes=("user", "project"),
         ),
         Client(
-            "gemini", "Gemini CLI", "mcpServers",
-            lambda scope: (Path.cwd() / ".gemini" / "settings.json") if scope == "project"
-            else _home() / ".gemini" / "settings.json",
+            "gemini",
+            "Gemini CLI",
+            "mcpServers",
+            lambda scope: (
+                (Path.cwd() / ".gemini" / "settings.json")
+                if scope == "project"
+                else _home() / ".gemini" / "settings.json"
+            ),
             scopes=("user", "project"),
         ),
         Client(
-            "codex", "Codex", "mcp_servers",
-            lambda scope: (Path.cwd() / ".codex" / "config.toml") if scope == "project"
-            else Path(os.environ.get("CODEX_HOME") or _home() / ".codex") / "config.toml",
-            fmt="toml", scopes=("user", "project"),
+            "codex",
+            "Codex",
+            "mcp_servers",
+            lambda scope: (
+                (Path.cwd() / ".codex" / "config.toml")
+                if scope == "project"
+                else Path(os.environ.get("CODEX_HOME") or _home() / ".codex")
+                / "config.toml"
+            ),
+            fmt="toml",
+            scopes=("user", "project"),
         ),
     ]
 }
@@ -138,7 +170,9 @@ def get_client(name: str) -> Client:
 # ── launcher: the command a client runs to start the wrapper ─────────────
 
 
-def launcher(kind: str = "uvx", package: str = DEFAULT_PACKAGE, *, portable: bool = False) -> list[str]:
+def launcher(
+    kind: str = "uvx", package: str = DEFAULT_PACKAGE, *, portable: bool = False
+) -> list[str]:
     """
     Command prefix that starts ``ctxtual``.
 
@@ -190,7 +224,8 @@ def is_wrapped(entry: dict[str, Any]) -> bool:
     args = [str(a) for a in entry.get("args") or []]
     cmd = Path(str(entry.get("command") or "")).name
     mentions = cmd.startswith("ctxtual") or any(
-        a == "ctxtual" or a.startswith(("ctxtual[", "ctxtual==", "ctxtual>")) for a in args
+        a == "ctxtual" or a.startswith(("ctxtual[", "ctxtual==", "ctxtual>"))
+        for a in args
     )
     return mentions and "wrap" in args
 
@@ -271,8 +306,14 @@ def wrap_entry(
                 or (client == "gemini" and "url" in entry and "httpUrl" not in entry)
             )
         )
-        for k in (*URL_KEYS, "headers", "http_headers", "env_http_headers",
-                  "bearer_token_env_var", "transport"):
+        for k in (
+            *URL_KEYS,
+            "headers",
+            "http_headers",
+            "env_http_headers",
+            "bearer_token_env_var",
+            "transport",
+        ):
             new.pop(k, None)
         wrap_args.append(url)
         if legacy_sse:
@@ -309,7 +350,7 @@ def redact(entry: dict[str, Any]) -> dict[str, Any]:
     """Copy of *entry* with environment values hidden, for display."""
     shown = copy.deepcopy(entry)
     if isinstance(shown.get("env"), dict):
-        shown["env"] = {k: "***" for k in shown["env"]}
+        shown["env"] = dict.fromkeys(shown["env"], "***")
     return shown
 
 
@@ -356,7 +397,9 @@ def _atomic_write(path: Path, text: str, *, mode: int | None = None) -> None:
 
     path = _target(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".ctxtual-tmp")
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".ctxtual-tmp"
+    )
     tmp = Path(tmp_name)
     try:
         with os.fdopen(fd, "w") as fh:
@@ -377,7 +420,7 @@ def _backup(path: Path) -> Path | None:
     path = _target(path)
     if not path.exists():
         return None
-    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    stamp = datetime.datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")
     backup = path.with_name(f"{path.name}.ctxtual-backup-{stamp}")
     n = 1
     while backup.exists():  # never overwrite an earlier backup
@@ -410,7 +453,9 @@ def _read_json(path: Path) -> dict[str, Any]:
 class ConfigFile:
     """Read/modify/write the servers section of one client config."""
 
-    def __init__(self, client: Client, scope: str = "user", path: Path | None = None) -> None:
+    def __init__(
+        self, client: Client, scope: str = "user", path: Path | None = None
+    ) -> None:
         if scope not in client.scopes:
             raise InstallError(
                 f"{client.title} has no {scope!r} scope (choose: {', '.join(client.scopes)})"
@@ -432,13 +477,21 @@ class ConfigFile:
             data = (data.get("projects") or {}).get(str(Path.cwd())) or {}
         section = data.get(self.client.servers_key) or {}
         if not isinstance(section, dict):
-            raise InstallError(f"{self.client.servers_key} in {self.path} is not an object")
-        return {name: (dict(e) if isinstance(e, dict) else e) for name, e in section.items()}
+            raise InstallError(
+                f"{self.client.servers_key} in {self.path} is not an object"
+            )
+        return {
+            name: (dict(e) if isinstance(e, dict) else e) for name, e in section.items()
+        }
 
     def _toml(self) -> Any:
         if self._doc is None:
             tomlkit = _tomlkit()
-            self._doc = tomlkit.parse(self.path.read_text()) if self.path.exists() else tomlkit.document()
+            self._doc = (
+                tomlkit.parse(self.path.read_text())
+                if self.path.exists()
+                else tomlkit.document()
+            )
         return self._doc
 
     # writing
@@ -513,7 +566,9 @@ def _tomlkit() -> Any:
     try:
         import tomlkit
     except ImportError:
-        raise InstallError("editing Codex config needs tomlkit: pip install 'ctxtual[mcp]'") from None
+        raise InstallError(
+            "editing Codex config needs tomlkit: pip install 'ctxtual[mcp]'"
+        ) from None
     return tomlkit
 
 
@@ -533,22 +588,49 @@ def _claude_cli_replace(
             "the `claude` CLI was not found; install Claude Code, or add the server "
             "yourself with `ctxtual add claude-code NAME … --print`."
         )
-    subprocess.run([claude, "mcp", "remove", name, "--scope", scope],
-                   check=False, capture_output=True)
+    subprocess.run(
+        [claude, "mcp", "remove", name, "--scope", scope],
+        check=False,
+        capture_output=True,
+    )
     added = subprocess.run(
-        [claude, "mcp", "add-json", name, json.dumps(_claude_payload(entry)), "--scope", scope],
-        check=False, capture_output=True, text=True,
+        [
+            claude,
+            "mcp",
+            "add-json",
+            name,
+            json.dumps(_claude_payload(entry)),
+            "--scope",
+            scope,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
     )
     if added.returncode == 0:
         return
     restored = ""
     if isinstance(previous, dict):
         back = subprocess.run(
-            [claude, "mcp", "add-json", name, json.dumps(_claude_payload(previous)), "--scope", scope],
-            check=False, capture_output=True, text=True,
+            [
+                claude,
+                "mcp",
+                "add-json",
+                name,
+                json.dumps(_claude_payload(previous)),
+                "--scope",
+                scope,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
         )
-        restored = " The previous entry was put back." if back.returncode == 0 else (
-            " Putting the previous entry back failed too; restore it from the backup."
+        restored = (
+            " The previous entry was put back."
+            if back.returncode == 0
+            else (
+                " Putting the previous entry back failed too; restore it from the backup."
+            )
         )
     detail = (added.stderr or added.stdout or "").strip()
     raise InstallError(f"`claude mcp add-json {name}` failed: {detail}.{restored}")
@@ -556,7 +638,15 @@ def _claude_cli_replace(
 
 def claude_code_command(name: str, entry: dict[str, Any], scope: str = "user") -> str:
     return shlex.join(
-        ["claude", "mcp", "add-json", name, json.dumps(_claude_payload(entry)), "--scope", scope]
+        [
+            "claude",
+            "mcp",
+            "add-json",
+            name,
+            json.dumps(_claude_payload(entry)),
+            "--scope",
+            scope,
+        ]
     )
 
 
@@ -628,7 +718,9 @@ def install(
     return changes, backup
 
 
-def _restore_entry(saved: Any, current: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+def _restore_entry(
+    saved: Any, current: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str]:
     """
     The entry to restore for *current* (a wrapped entry), and a note.
 
@@ -643,13 +735,18 @@ def _restore_entry(saved: Any, current: dict[str, Any]) -> tuple[dict[str, Any] 
     else:
         unwrapped = unwrap_entry(current)
         if unwrapped is None:
-            return None, "not installed by `ctxtual install`; edit or remove it in the client"
+            return (
+                None,
+                "not installed by `ctxtual install`; edit or remove it in the client",
+            )
         return unwrapped, ""
     if wrapped is None or current == wrapped:
         return copy.deepcopy(original), ""
     restored = copy.deepcopy(original)
     added_env = set(wrapped.get("env") or {}) - set(original.get("env") or {})
-    added_vars = set(wrapped.get("env_vars") or []) - set(original.get("env_vars") or [])
+    added_vars = set(wrapped.get("env_vars") or []) - set(
+        original.get("env_vars") or []
+    )
     wrapper_keys = {"command", "args", "type"}
     for key, value in current.items():
         if key in wrapper_keys:
@@ -669,7 +766,10 @@ def _restore_entry(saved: Any, current: dict[str, Any]) -> tuple[dict[str, Any] 
     if entry_kind(original) == "stdio":
         upstream = unwrap_entry(current)
         if upstream is not None:
-            restored["command"], restored["args"] = upstream["command"], upstream["args"]
+            restored["command"], restored["args"] = (
+                upstream["command"],
+                upstream["args"],
+            )
     return restored, "kept your edits made after install"
 
 
@@ -695,7 +795,9 @@ def uninstall(
             changes.append(Change(name, "skip", note))
             continue
         restore[name] = original
-        changes.append(Change(name, "restore", reason=note, before=entry, after=original))
+        changes.append(
+            Change(name, "restore", reason=note, before=entry, after=original)
+        )
     if dry_run or not restore:
         return changes, None
     backup = config.write(restore, previous=existing)
@@ -710,7 +812,7 @@ def unwrap_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
     args = [str(a) for a in entry.get("args") or []]
     if "--" not in args:
         return None
-    upstream = args[args.index("--") + 1:]
+    upstream = args[args.index("--") + 1 :]
     if not upstream:
         return None
     original = {k: v for k, v in entry.items() if k not in ("command", "args")}
@@ -726,7 +828,9 @@ def cursor_link(name: str, entry: dict[str, Any]) -> str:
     import base64
     from urllib.parse import quote
 
-    config = base64.b64encode(json.dumps(entry, separators=(",", ":")).encode()).decode()
+    config = base64.b64encode(
+        json.dumps(entry, separators=(",", ":")).encode()
+    ).decode()
     # base64 may contain "+" and "/", which query parsers would mangle.
     return (
         "cursor://anysphere.cursor-deeplink/mcp/install"
@@ -737,5 +841,9 @@ def cursor_link(name: str, entry: dict[str, Any]) -> str:
 def vscode_link(name: str, entry: dict[str, Any]) -> str:
     from urllib.parse import quote
 
-    payload = {"name": name, "type": "stdio", **{k: v for k, v in entry.items() if k != "type"}}
+    payload = {
+        "name": name,
+        "type": "stdio",
+        **{k: v for k, v in entry.items() if k != "type"},
+    }
     return "vscode:mcp/install?" + quote(json.dumps(payload, separators=(",", ":")))

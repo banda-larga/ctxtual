@@ -19,6 +19,10 @@
 - `benchmarks/`: measures ctxtual with real models through OpenRouter (six
   tasks over large results; inline, truncated and ctxtual conditions).
 - CI and release workflows use actions on the Node 24 runtime.
+- The code base is formatted with `ruff format`, and CI checks formatting
+  and lints the whole repository (examples and notebooks included) with a
+  stricter rule set; this fixed unused and unsorted imports in the
+  notebooks, and made backup timestamps timezone-aware.
 
 ## 0.5.0
 

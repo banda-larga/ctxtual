@@ -167,9 +167,7 @@ class WorkspaceConflictError(CtxtualError):
     def __init__(self, workspace_id: str, reason: str) -> None:
         self.workspace_id = workspace_id
         self.reason = reason
-        super().__init__(
-            f"Refusing to overwrite workspace '{workspace_id}': {reason}"
-        )
+        super().__init__(f"Refusing to overwrite workspace '{workspace_id}': {reason}")
 
     def to_llm_dict(self) -> dict[str, Any]:
         return {

@@ -2,7 +2,9 @@
 
 from fastmcp import FastMCP
 
-mcp = FastMCP("with-instructions", instructions="UPSTREAM-GUIDANCE: always pass org=acme.")
+mcp = FastMCP(
+    "with-instructions", instructions="UPSTREAM-GUIDANCE: always pass org=acme."
+)
 
 
 @mcp.tool

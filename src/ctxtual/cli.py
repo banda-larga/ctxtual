@@ -45,7 +45,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     upstream: list[str] = []
     if "--" in argv:
         i = argv.index("--")
-        argv, upstream = argv[:i], argv[i + 1:]
+        argv, upstream = argv[:i], argv[i + 1 :]
     parser = _parser()
     args = parser.parse_args(argv)
     args.upstream = upstream
@@ -82,20 +82,42 @@ def _parser() -> argparse.ArgumentParser:
     )
     w.add_argument("url", nargs="?", help="streamable HTTP endpoint of the server")
     _wrap_options(w)
-    w.add_argument("-H", "--header", action="append", default=[], metavar="'NAME: VALUE'",
-                   help="HTTP header for the upstream server; ${VAR} is read from the environment")
-    w.add_argument("--sse", action="store_const", const=True, default=None,
-                   help="the URL uses the legacy HTTP+SSE transport "
-                   "(default: when the path ends in /sse)")
-    w.add_argument("--oauth", action="store_true",
-                   help="log in to the upstream server with OAuth if it asks (browser flow)")
+    w.add_argument(
+        "-H",
+        "--header",
+        action="append",
+        default=[],
+        metavar="'NAME: VALUE'",
+        help="HTTP header for the upstream server; ${VAR} is read from the environment",
+    )
+    w.add_argument(
+        "--sse",
+        action="store_const",
+        const=True,
+        default=None,
+        help="the URL uses the legacy HTTP+SSE transport "
+        "(default: when the path ends in /sse)",
+    )
+    w.add_argument(
+        "--oauth",
+        action="store_true",
+        help="log in to the upstream server with OAuth if it asks (browser flow)",
+    )
     w.add_argument("--oauth-scope", action="append", default=[], metavar="SCOPE")
-    w.add_argument("--env", action="append", default=[], metavar="KEY=VALUE",
-                   help="extra environment variable for a command upstream")
+    w.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="extra environment variable for a command upstream",
+    )
     w.add_argument("--cwd", help="working directory for a command upstream")
-    w.add_argument("--http", action="store_true",
-                   help="serve streamable HTTP instead of stdio")
-    w.add_argument("--host", default="127.0.0.1", help="HTTP bind address (loopback only)")
+    w.add_argument(
+        "--http", action="store_true", help="serve streamable HTTP instead of stdio"
+    )
+    w.add_argument(
+        "--host", default="127.0.0.1", help="HTTP bind address (loopback only)"
+    )
     w.add_argument("--port", type=int, default=8766, help="HTTP port (default 8766)")
     w.add_argument("--name", help="server name shown to the client")
     w.add_argument("--log-level", default="WARNING", help="log level (stderr)")
@@ -114,9 +136,15 @@ def _parser() -> argparse.ArgumentParser:
             _wrap_options(c, for_install=True)
         c.set_defaults(func=fn)
 
-    s = sub.add_parser("status", help="list configured servers and whether they are wrapped")
-    s.add_argument("clients", nargs="*", metavar="client",
-                   help=f"one of {', '.join(CLIENTS)} (default: all found)")
+    s = sub.add_parser(
+        "status", help="list configured servers and whether they are wrapped"
+    )
+    s.add_argument(
+        "clients",
+        nargs="*",
+        metavar="client",
+        help=f"one of {', '.join(CLIENTS)} (default: all found)",
+    )
     s.set_defaults(func=_cmd_status)
 
     a = sub.add_parser(
@@ -127,11 +155,19 @@ def _parser() -> argparse.ArgumentParser:
     )
     a.add_argument("client", choices=list(CLIENTS))
     a.add_argument("name", help="name for the server")
-    a.add_argument("url", nargs="?", help="streamable HTTP endpoint (or a command after --)")
-    a.add_argument("-H", "--header", action="append", default=[], metavar="'NAME: VALUE'")
+    a.add_argument(
+        "url", nargs="?", help="streamable HTTP endpoint (or a command after --)"
+    )
+    a.add_argument(
+        "-H", "--header", action="append", default=[], metavar="'NAME: VALUE'"
+    )
     a.add_argument("--env", action="append", default=[], metavar="KEY=VALUE")
-    a.add_argument("--print", dest="print_only", action="store_true",
-                   help="print the config snippet / install link instead of writing")
+    a.add_argument(
+        "--print",
+        dest="print_only",
+        action="store_true",
+        help="print the config snippet / install link instead of writing",
+    )
     _client_options(a)
     _wrap_options(a, for_install=True)
     a.set_defaults(func=_cmd_add)
@@ -140,38 +176,86 @@ def _parser() -> argparse.ArgumentParser:
 
 def _wrap_options(p: argparse.ArgumentParser, *, for_install: bool = False) -> None:
     g = p.add_argument_group("offloading")
-    g.add_argument("--threshold", type=int, default=None if for_install else 20_000,
-                   help="offload results longer than this many characters (default 20000)")
-    g.add_argument("--ttl", type=float, default=None if for_install else 3600.0,
-                   help="drop a stored result after this many seconds without use; "
-                   "0 = keep until evicted (default 3600)")
+    g.add_argument(
+        "--threshold",
+        type=int,
+        default=None if for_install else 20_000,
+        help="offload results longer than this many characters (default 20000)",
+    )
+    g.add_argument(
+        "--ttl",
+        type=float,
+        default=None if for_install else 3600.0,
+        help="drop a stored result after this many seconds without use; "
+        "0 = keep until evicted (default 3600)",
+    )
     if for_install:
         return
-    g.add_argument("--store", metavar="PATH",
-                   help="SQLite file to keep stored results across restarts (default: memory)")
-    g.add_argument("--include", action="append", default=None, metavar="GLOB",
-                   help="only offload these tools (repeatable)")
-    g.add_argument("--exclude", action="append", default=[], metavar="GLOB",
-                   help="never offload these tools (repeatable)")
-    g.add_argument("--tool-threshold", action="append", default=[], metavar="GLOB=CHARS",
-                   help="per-tool threshold, e.g. get_file=40000 (repeatable)")
-    g.add_argument("--tools", default="search,read,query,list",
-                   help="injected tools to expose (default: search,read,query,list)")
-    g.add_argument("--max-results", type=int, default=200,
-                   help="most stored results kept; least recently used go first (default 200)")
+    g.add_argument(
+        "--store",
+        metavar="PATH",
+        help="SQLite file to keep stored results across restarts (default: memory)",
+    )
+    g.add_argument(
+        "--include",
+        action="append",
+        default=None,
+        metavar="GLOB",
+        help="only offload these tools (repeatable)",
+    )
+    g.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="never offload these tools (repeatable)",
+    )
+    g.add_argument(
+        "--tool-threshold",
+        action="append",
+        default=[],
+        metavar="GLOB=CHARS",
+        help="per-tool threshold, e.g. get_file=40000 (repeatable)",
+    )
+    g.add_argument(
+        "--tools",
+        default="search,read,query,list",
+        help="injected tools to expose (default: search,read,query,list)",
+    )
+    g.add_argument(
+        "--max-results",
+        type=int,
+        default=200,
+        help="most stored results kept; least recently used go first (default 200)",
+    )
     g.add_argument("--prefix", default="result", help="prefix of the injected tools")
-    g.add_argument("--allow-regex", action="store_true",
-                   help="allow $regex in result_query filters (runs model-written patterns)")
+    g.add_argument(
+        "--allow-regex",
+        action="store_true",
+        help="allow $regex in result_query filters (runs model-written patterns)",
+    )
 
 
 def _client_options(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--scope", default="user",
-                   help="config scope: user (default), project, or local (claude-code)")
-    p.add_argument("--config", help="path of the client's config file (overrides detection)")
-    p.add_argument("--launcher", choices=["uvx", "python"], default="uvx",
-                   help="how the client starts ctxtual: uvx (default) or this Python")
-    p.add_argument("--package", default="ctxtual[mcp]",
-                   help="package spec uvx installs (e.g. a pinned version or a path)")
+    p.add_argument(
+        "--scope",
+        default="user",
+        help="config scope: user (default), project, or local (claude-code)",
+    )
+    p.add_argument(
+        "--config", help="path of the client's config file (overrides detection)"
+    )
+    p.add_argument(
+        "--launcher",
+        choices=["uvx", "python"],
+        default="uvx",
+        help="how the client starts ctxtual: uvx (default) or this Python",
+    )
+    p.add_argument(
+        "--package",
+        default="ctxtual[mcp]",
+        help="package spec uvx installs (e.g. a pinned version or a path)",
+    )
 
 
 # ── wrap ──────────────────────────────────────────────────────────────────
@@ -193,8 +277,11 @@ def _cmd_wrap(args: argparse.Namespace) -> int:
     level = args.log_level.upper()
     # FastMCP configures its own logger from this variable when imported.
     os.environ.setdefault("FASTMCP_LOG_LEVEL", level)
-    logging.basicConfig(level=level, stream=sys.stderr,
-                        format="ctxtual %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=level,
+        stream=sys.stderr,
+        format="ctxtual %(levelname)s %(name)s: %(message)s",
+    )
     try:
         from ctxtual.mcp import create_offload_proxy, expand_env
     except ImportError as exc:
@@ -254,8 +341,12 @@ def _cmd_wrap(args: argparse.Namespace) -> int:
             "Python API (ctxtual.mcp.create_offload_proxy(..., auth=...)) for a "
             "hosted deployment."
         )
-    names = {"127.0.0.1", "localhost", "[::1]",
-             f"[{args.host.strip('[]')}]" if ":" in args.host else args.host}
+    names = {
+        "127.0.0.1",
+        "localhost",
+        "[::1]",
+        f"[{args.host.strip('[]')}]" if ":" in args.host else args.host,
+    }
     hosts = [f"{h}:{args.port}" for h in sorted(names)]
     print(f"ctxtual: serving on http://{args.host}:{args.port}/mcp", file=sys.stderr)
     proxy.run(
@@ -285,7 +376,7 @@ def _parse_headers(raw_headers: Sequence[str]) -> dict[str, str]:
     for raw in raw_headers:
         name, sep, value = raw.partition(":")
         name = name.strip()
-        if not sep or not name or any(c.isspace() or c in "=\"" for c in name):
+        if not sep or not name or any(c.isspace() or c in '="' for c in name):
             raise InstallError(f"bad --header {raw!r}; use 'Name: value'")
         headers[name] = value.strip()
     return headers
@@ -298,7 +389,9 @@ def _tool_threshold(raw: str) -> tuple[str, int]:
     except ValueError:
         chars = 0
     if not pattern.strip() or chars < 1:
-        raise InstallError(f"bad --tool-threshold {raw!r}; use GLOB=CHARS, e.g. get_file=40000")
+        raise InstallError(
+            f"bad --tool-threshold {raw!r}; use GLOB=CHARS, e.g. get_file=40000"
+        )
     return pattern.strip(), chars
 
 
@@ -308,7 +401,9 @@ def _tool_names(raw: str) -> list[str]:
     names = [t.strip().lower() for t in raw.split(",") if t.strip()]
     unknown = [t for t in names if t not in TOOLS]
     if unknown or not names:
-        raise InstallError(f"bad --tools {raw!r}; use a comma-separated subset of {','.join(TOOLS)}")
+        raise InstallError(
+            f"bad --tools {raw!r}; use a comma-separated subset of {','.join(TOOLS)}"
+        )
     return names
 
 
@@ -326,7 +421,9 @@ def _config(args: argparse.Namespace) -> ConfigFile:
     from pathlib import Path
 
     client = get_client(args.client)
-    return ConfigFile(client, args.scope, Path(args.config).expanduser() if args.config else None)
+    return ConfigFile(
+        client, args.scope, Path(args.config).expanduser() if args.config else None
+    )
 
 
 def _cmd_install(args: argparse.Namespace) -> int:
@@ -335,8 +432,13 @@ def _cmd_install(args: argparse.Namespace) -> int:
         raise InstallError(f"{config.client.title} config not found at {config.path}")
     launch = launcher(args.launcher, args.package)
     options = WrapOptions(threshold=args.threshold, ttl=args.ttl)
-    changes, backup = install(config, launch=launch, servers=args.servers or None,
-                              options=options, dry_run=args.dry_run)
+    changes, backup = install(
+        config,
+        launch=launch,
+        servers=args.servers or None,
+        options=options,
+        dry_run=args.dry_run,
+    )
     _report(changes, config, backup, dry_run=args.dry_run, verb="wrapped")
     if config.client.notes:
         print(f"note: {config.client.notes}")
@@ -345,12 +447,16 @@ def _cmd_install(args: argparse.Namespace) -> int:
 
 def _cmd_uninstall(args: argparse.Namespace) -> int:
     config = _config(args)
-    changes, backup = uninstall(config, servers=args.servers or None, dry_run=args.dry_run)
+    changes, backup = uninstall(
+        config, servers=args.servers or None, dry_run=args.dry_run
+    )
     _report(changes, config, backup, dry_run=args.dry_run, verb="restored")
     return 0
 
 
-def _report(changes: list[Any], config: ConfigFile, backup: Any, *, dry_run: bool, verb: str) -> None:
+def _report(
+    changes: list[Any], config: ConfigFile, backup: Any, *, dry_run: bool, verb: str
+) -> None:
     title = config.client.title
     if not changes:
         print(f"{title}: nothing to do ({config.path})")
@@ -366,7 +472,9 @@ def _report(changes: list[Any], config: ConfigFile, backup: Any, *, dry_run: boo
                 print(f"      {json.dumps(redact(c.after))}")
     done = [c for c in changes if c.action in ("wrap", "restore")]
     if done and not dry_run:
-        where = config.path if config.client.fmt != "claude-code" else "via `claude mcp`"
+        where = (
+            config.path if config.client.fmt != "claude-code" else "via `claude mcp`"
+        )
         print(f"{title}: {len(done)} server(s) {verb} in {where}")
         if backup:
             print(f"backup: {backup}")
@@ -415,23 +523,35 @@ def _cmd_add(args: argparse.Namespace) -> int:
     else:
         raise InstallError("nothing to add: give a URL, or a command after --")
     launch = launcher(args.launcher, args.package, portable=args.print_only)
-    wrapped, _ = wrap_entry(entry, launch, WrapOptions(threshold=args.threshold, ttl=args.ttl),
-                            client=args.client)
-    needed = [v for v in referenced_env_vars(wrapped) if v not in (wrapped.get("env") or {})]
+    wrapped, _ = wrap_entry(
+        entry,
+        launch,
+        WrapOptions(threshold=args.threshold, ttl=args.ttl),
+        client=args.client,
+    )
+    needed = [
+        v for v in referenced_env_vars(wrapped) if v not in (wrapped.get("env") or {})
+    ]
     if args.print_only:
         _print_snippet(args.client, args.name, wrapped, args.scope)
         if needed:
-            print(f"\nnote: the wrapper reads {', '.join(needed)} from its environment; "
-                  "set it in the server's env (or export it before starting the client).")
+            print(
+                f"\nnote: the wrapper reads {', '.join(needed)} from its environment; "
+                "set it in the server's env (or export it before starting the client)."
+            )
         return 0
     config = _config(args)
     if args.name in config.servers():
-        raise InstallError(f"{config.client.title} already has a server named {args.name!r}")
+        raise InstallError(
+            f"{config.client.title} already has a server named {args.name!r}"
+        )
     backup = config.write({args.name: wrapped})
     where = config.path if config.client.fmt != "claude-code" else "via `claude mcp`"
     print(f"✓ added {args.name} to {config.client.title} ({where})")
     if needed:
-        print(f"note: set {', '.join(needed)} in this server's env block; the wrapper reads it from there.")
+        print(
+            f"note: set {', '.join(needed)} in this server's env block; the wrapper reads it from there."
+        )
     if backup:
         print(f"backup: {backup}")
     print(f"Restart {config.client.title} to apply.")
@@ -440,25 +560,39 @@ def _cmd_add(args: argparse.Namespace) -> int:
 
 def _print_snippet(client: str, name: str, entry: dict[str, Any], scope: str) -> None:
     if client == "cursor":
-        print(f"Install link:\n{cursor_link(name, entry)}\n\nOr add to {CLIENTS[client].path('user')}:")
+        print(
+            f"Install link:\n{cursor_link(name, entry)}\n\nOr add to {CLIENTS[client].path('user')}:"
+        )
     elif client == "vscode":
-        print(f"Install link:\n{vscode_link(name, entry)}\n\nOr add to {CLIENTS[client].path('user')}:")
+        print(
+            f"Install link:\n{vscode_link(name, entry)}\n\nOr add to {CLIENTS[client].path('user')}:"
+        )
     elif client == "claude-code":
         print(claude_code_command(name, entry, scope))
         return
     elif client == "codex":
         # JSON strings and arrays of strings are valid TOML.
-        key = name if name.replace("_", "").replace("-", "").isalnum() else json.dumps(name)
-        lines = [f"[mcp_servers.{key}]",
-                 f"command = {json.dumps(entry['command'])}",
-                 f"args = {json.dumps(entry['args'])}"]
-        env_vars = [v for v in referenced_env_vars(entry) if v not in (entry.get("env") or {})]
+        key = (
+            name
+            if name.replace("_", "").replace("-", "").isalnum()
+            else json.dumps(name)
+        )
+        lines = [
+            f"[mcp_servers.{key}]",
+            f"command = {json.dumps(entry['command'])}",
+            f"args = {json.dumps(entry['args'])}",
+        ]
+        env_vars = [
+            v for v in referenced_env_vars(entry) if v not in (entry.get("env") or {})
+        ]
         if env_vars:
             # Listed variables are passed by Codex to the server.
             lines.append(f"env_vars = {json.dumps(env_vars)}")
         if entry.get("env"):
             lines.append(f"\n[mcp_servers.{key}.env]")
-            lines += [f"{json.dumps(k)} = {json.dumps(v)}" for k, v in entry["env"].items()]
+            lines += [
+                f"{json.dumps(k)} = {json.dumps(v)}" for k, v in entry["env"].items()
+            ]
         print(f"Add to {CLIENTS[client].path('user')}:\n")
         print("\n".join(lines))
         return

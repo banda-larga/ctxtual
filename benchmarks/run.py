@@ -36,9 +36,9 @@ from fastmcp.tools.base import ToolResult
 from mcp_types import TextContent
 
 sys.path.insert(0, str(Path(__file__).parent))
-from tasks import SIZES, Task, server, tasks  # noqa: E402
+from tasks import SIZES, Task, server, tasks
 
-from ctxtual.mcp import Offload  # noqa: E402
+from ctxtual.mcp import Offload
 
 CONDITIONS = ("inline", "truncated", "ctxtual")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -64,8 +64,10 @@ class Truncate(Middleware):
         text = "".join(getattr(b, "text", "") for b in result.content or [])
         if len(text) <= self.limit:
             return result
-        cut = f"{text[:self.limit]}\n… [output truncated: {len(text) - self.limit:,} more characters]"
-        return ToolResult(content=[TextContent(type="text", text=cut)], is_error=result.is_error)
+        cut = f"{text[: self.limit]}\n… [output truncated: {len(text) - self.limit:,} more characters]"
+        return ToolResult(
+            content=[TextContent(type="text", text=cut)], is_error=result.is_error
+        )
 
 
 def build(condition: str, size: str, truncate: int) -> FastMCP:
@@ -89,15 +91,23 @@ class OpenRouter:
         self.model, self.key, self.timeout = model, key, timeout
 
     async def complete(self, messages: list[dict], tools: list[dict]) -> dict:
-        body = {"model": self.model, "messages": messages, "tools": tools,
-                "usage": {"include": True}}
+        body = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "usage": {"include": True},
+        }
         return await asyncio.to_thread(self._post, body)
 
     def _post(self, body: dict) -> dict:
         request = urllib.request.Request(
-            OPENROUTER_URL, data=json.dumps(body).encode(),
-            headers={"Authorization": f"Bearer {self.key}", "Content-Type": "application/json",
-                     "X-Title": "ctxtual benchmark"},
+            OPENROUTER_URL,
+            data=json.dumps(body).encode(),
+            headers={
+                "Authorization": f"Bearer {self.key}",
+                "Content-Type": "application/json",
+                "X-Title": "ctxtual benchmark",
+            },
         )
         for attempt in range(4):
             try:
@@ -106,12 +116,12 @@ class OpenRouter:
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode(errors="replace")[:500]
                 if exc.code in (429, 502, 503) and attempt < 3:
-                    time.sleep(5 * 2 ** attempt)
+                    time.sleep(5 * 2**attempt)
                     continue
                 raise ModelError(f"HTTP {exc.code}: {detail}") from None
             except (urllib.error.URLError, TimeoutError) as exc:
                 if attempt < 3:
-                    time.sleep(5 * 2 ** attempt)
+                    time.sleep(5 * 2**attempt)
                     continue
                 raise ModelError(str(exc)) from None
             if "error" in data:
@@ -128,9 +138,12 @@ class ScriptedModel:
 
     async def complete(self, messages: list[dict], tools: list[dict]) -> dict:
         names = {t["function"]["name"] for t in tools}
-        source = {"issues": ("list_issues", {"repo": "acme/widgets"}),
-                  "docs": ("read_manual", {}), "logs": ("get_logs", {}),
-                  "deps": ("list_dependencies", {})}[self.task.name.split("_")[0]]
+        source = {
+            "issues": ("list_issues", {"repo": "acme/widgets"}),
+            "docs": ("read_manual", {}),
+            "logs": ("get_logs", {}),
+            "deps": ("list_dependencies", {}),
+        }[self.task.name.split("_")[0]]
         self.step += 1
         calls = []
         if self.step == 1:
@@ -138,7 +151,10 @@ class ScriptedModel:
         elif self.step == 2 and "result_list" in names:
             calls = [("result_list", {})]
         if calls:
-            return _reply(None, [(f"call_{self.step}_{i}", n, a) for i, (n, a) in enumerate(calls)])
+            return _reply(
+                None,
+                [(f"call_{self.step}_{i}", n, a) for i, (n, a) in enumerate(calls)],
+            )
         return _reply(f"Done.\nANSWER: {self.task.answer}", [])
 
 
@@ -146,9 +162,17 @@ def _reply(content: str | None, calls: list[tuple[str, str, dict]]) -> dict:
     message: dict[str, Any] = {"role": "assistant", "content": content}
     if calls:
         message["tool_calls"] = [
-            {"id": cid, "type": "function", "function": {"name": n, "arguments": json.dumps(a)}}
-            for cid, n, a in calls]
-    return {"choices": [{"message": message}], "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
+            {
+                "id": cid,
+                "type": "function",
+                "function": {"name": n, "arguments": json.dumps(a)},
+            }
+            for cid, n, a in calls
+        ]
+    return {
+        "choices": [{"message": message}],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+    }
 
 
 # ── one run ───────────────────────────────────────────────────────────────
@@ -175,19 +199,41 @@ class Run:
     tools_used: list[str] = field(default_factory=list)
 
 
-async def run_one(model: Any, model_name: str, condition: str, size: str, task: Task,
-                  truncate: int, max_turns: int) -> Run:
+async def run_one(
+    model: Any,
+    model_name: str,
+    condition: str,
+    size: str,
+    task: Task,
+    truncate: int,
+    max_turns: int,
+) -> Run:
     run = Run(model_name, condition, size, task.name, expected=task.answer)
     started = time.perf_counter()
     async with Client(build(condition, size, truncate)) as client:
-        tools = [{"type": "function", "function": {
-            "name": t.name, "description": t.description or "",
-            "parameters": t.input_schema}} for t in await client.list_tools()]
-        instructions = getattr(client.initialize_result, "instructions", None) if \
-            client.initialize_result else None
-        system = SYSTEM + (f"\n\nServer instructions:\n{instructions}" if instructions else "")
-        messages: list[dict] = [{"role": "system", "content": system},
-                                {"role": "user", "content": task.question}]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description or "",
+                    "parameters": t.input_schema,
+                },
+            }
+            for t in await client.list_tools()
+        ]
+        instructions = (
+            getattr(client.initialize_result, "instructions", None)
+            if client.initialize_result
+            else None
+        )
+        system = SYSTEM + (
+            f"\n\nServer instructions:\n{instructions}" if instructions else ""
+        )
+        messages: list[dict] = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": task.question},
+        ]
         try:
             for _ in range(max_turns):
                 data = await model.complete(messages, tools)
@@ -195,12 +241,19 @@ async def run_one(model: Any, model_name: str, condition: str, size: str, task: 
                 usage = data.get("usage") or {}
                 run.prompt_tokens += usage.get("prompt_tokens") or 0
                 run.completion_tokens += usage.get("completion_tokens") or 0
-                run.cached_tokens += (usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+                run.cached_tokens += (usage.get("prompt_tokens_details") or {}).get(
+                    "cached_tokens"
+                ) or 0
                 run.cost += float(usage.get("cost") or 0)
                 message = data["choices"][0]["message"]
                 calls = message.get("tool_calls") or []
-                messages.append({k: v for k, v in message.items()
-                                 if k in ("role", "content", "tool_calls", "reasoning_details")})
+                messages.append(
+                    {
+                        k: v
+                        for k, v in message.items()
+                        if k in ("role", "content", "tool_calls", "reasoning_details")
+                    }
+                )
                 if not calls:
                     run.answer = _extract_answer(message.get("content") or "")
                     run.correct = _grade(run.answer, task)
@@ -214,12 +267,16 @@ async def run_one(model: Any, model_name: str, condition: str, size: str, task: 
                     except ValueError:
                         args = {}
                     try:
-                        result = await client.call_tool(name, args, raise_on_error=False)
+                        result = await client.call_tool(
+                            name, args, raise_on_error=False
+                        )
                         text = "".join(getattr(b, "text", "") for b in result.content)
                     except Exception as exc:  # unknown tool, bad arguments
                         text = f"Error: {exc}"
                     run.largest_tool_result = max(run.largest_tool_result, len(text))
-                    messages.append({"role": "tool", "tool_call_id": call["id"], "content": text})
+                    messages.append(
+                        {"role": "tool", "tool_call_id": call["id"], "content": text}
+                    )
             else:
                 run.error = f"no answer after {max_turns} turns"
         except ModelError as exc:
@@ -252,7 +309,7 @@ async def benchmark(args: argparse.Namespace) -> list[Run]:
         sys.exit("Set OPENROUTER_API_KEY (or use --self-test).")
     limit = asyncio.Semaphore(args.concurrency)
     jobs = []
-    for model_name in (["scripted"] if args.self_test else args.models):
+    for model_name in ["scripted"] if args.self_test else args.models:
         for size in args.sizes:
             for task in tasks(size):
                 if args.tasks and task.name not in args.tasks:
@@ -264,37 +321,52 @@ async def benchmark(args: argparse.Namespace) -> list[Run]:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    async def one(model_name: str, size: str, task: Task, condition: str, repeat: int) -> Run:
+    async def one(
+        model_name: str, size: str, task: Task, condition: str, repeat: int
+    ) -> Run:
         async with limit:
-            model = ScriptedModel(task) if args.self_test else OpenRouter(model_name, key)
-            run = await run_one(model, model_name, condition, size, task, args.truncate,
-                                args.max_turns)
-            with out.open("a") as f:
-                f.write(json.dumps(asdict(run)) + "\n")
+            model = (
+                ScriptedModel(task) if args.self_test else OpenRouter(model_name, key)
+            )
+            run = await run_one(
+                model, model_name, condition, size, task, args.truncate, args.max_turns
+            )
+            await asyncio.to_thread(_append, out, json.dumps(asdict(run)))
             mark = "ok " if run.correct else ("ERR" if run.error else "no ")
-            print(f"{mark} {model_name:40} {condition:9} {size:6} {task.name:14} "
-                  f"answer={run.answer!r} expected={task.answer!r} "
-                  f"tokens={run.prompt_tokens:,} calls={run.tool_calls}"
-                  + (f" error={run.error[:80]}" if run.error else ""), flush=True)
+            print(
+                f"{mark} {model_name:40} {condition:9} {size:6} {task.name:14} "
+                f"answer={run.answer!r} expected={task.answer!r} "
+                f"tokens={run.prompt_tokens:,} calls={run.tool_calls}"
+                + (f" error={run.error[:80]}" if run.error else ""),
+                flush=True,
+            )
             return run
 
     return await asyncio.gather(*(one(*job) for job in jobs))
+
+
+def _append(path: Path, line: str) -> None:
+    with path.open("a") as f:
+        f.write(line + "\n")
 
 
 def report(runs: list[Run]) -> str:
     groups: dict[tuple[str, str, str], list[Run]] = {}
     for run in runs:
         groups.setdefault((run.model, run.size, run.condition), []).append(run)
-    lines = ["| model | size | condition | correct | errors | prompt tokens (mean) "
-             "| cost (total $) | tool calls (mean) | seconds (mean) |",
-             "|---|---|---|---|---|---|---|---|---|"]
+    lines = [
+        "| model | size | condition | correct | errors | prompt tokens (mean) "
+        "| cost (total $) | tool calls (mean) | seconds (mean) |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
     for (model, size, condition), rs in sorted(groups.items()):
         n = len(rs)
         lines.append(
             f"| {model} | {size} | {condition} | {sum(r.correct for r in rs)}/{n} "
             f"| {sum(bool(r.error) for r in rs)} | {sum(r.prompt_tokens for r in rs) // n:,} "
             f"| {sum(r.cost for r in rs):.4f} | {sum(r.tool_calls for r in rs) / n:.1f} "
-            f"| {sum(r.seconds for r in rs) / n:.1f} |")
+            f"| {sum(r.seconds for r in rs) / n:.1f} |"
+        )
     return "\n".join(lines)
 
 
@@ -302,16 +374,27 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--models", nargs="+", default=[], help="OpenRouter model ids")
     parser.add_argument("--sizes", nargs="+", choices=sorted(SIZES), default=["medium"])
-    parser.add_argument("--conditions", nargs="+", choices=CONDITIONS, default=list(CONDITIONS))
+    parser.add_argument(
+        "--conditions", nargs="+", choices=CONDITIONS, default=list(CONDITIONS)
+    )
     parser.add_argument("--tasks", nargs="+", help="only these tasks (default: all)")
     parser.add_argument("--repeats", type=int, default=1)
-    parser.add_argument("--truncate", type=int, default=40_000,
-                        help="characters kept in the truncated condition (default 40000)")
+    parser.add_argument(
+        "--truncate",
+        type=int,
+        default=40_000,
+        help="characters kept in the truncated condition (default 40000)",
+    )
     parser.add_argument("--max-turns", type=int, default=15)
     parser.add_argument("--concurrency", type=int, default=4)
-    parser.add_argument("--out", default=f"benchmarks/results/{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
-    parser.add_argument("--self-test", action="store_true",
-                        help="run with a scripted model, no API calls")
+    parser.add_argument(
+        "--out", default=f"benchmarks/results/{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
+    )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="run with a scripted model, no API calls",
+    )
     args = parser.parse_args(argv)
     if not args.self_test and not args.models:
         parser.error("--models is required (or --self-test)")

@@ -86,10 +86,12 @@ def seen_headers() -> dict:
 @mcp.tool
 def picture() -> ToolResult:
     """A large result that includes an image."""
-    return ToolResult(content=[
-        TextContent(type="text", text="x" * 20_000),
-        ImageContent(type="image", data="iVBORw0KGgo=", mimeType="image/png"),
-    ])
+    return ToolResult(
+        content=[
+            TextContent(type="text", text="x" * 20_000),
+            ImageContent(type="image", data="iVBORw0KGgo=", mimeType="image/png"),
+        ]
+    )
 
 
 @mcp.tool
@@ -102,7 +104,9 @@ def fails() -> str:
 def text_with_summary() -> ToolResult:
     """Large text plus a small, different structured summary."""
     return ToolResult(
-        content=[TextContent(type="text", text="# Report\n" + "line\n" * 9000 + "NEEDLE-7\n")],
+        content=[
+            TextContent(type="text", text="# Report\n" + "line\n" * 9000 + "NEEDLE-7\n")
+        ],
         structured_content={"pages": 1, "ok": True},
     )
 
@@ -110,10 +114,14 @@ def text_with_summary() -> ToolResult:
 @mcp.tool
 def log_rows(n: int = 400) -> list[dict]:
     """Rows that have an 'error' field (ordinary data)."""
-    return [{"id": i, "error": "timeout" if i % 2 else None, "msg": "m" * 40} for i in range(n)]
+    return [
+        {"id": i, "error": "timeout" if i % 2 else None, "msg": "m" * 40}
+        for i in range(n)
+    ]
 
 
 if os.environ.get("UPSTREAM_CLASH"):
+
     @mcp.tool(name="result_list")
     def upstream_result_list() -> dict:
         """The upstream server's own tool that happens to be called result_list."""
@@ -122,6 +130,11 @@ if os.environ.get("UPSTREAM_CLASH"):
 
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] in ("http", "sse"):
-        mcp.run(transport=sys.argv[1], host="127.0.0.1", port=int(sys.argv[2]), show_banner=False)
+        mcp.run(
+            transport=sys.argv[1],
+            host="127.0.0.1",
+            port=int(sys.argv[2]),
+            show_banner=False,
+        )
     else:
         mcp.run(show_banner=False)

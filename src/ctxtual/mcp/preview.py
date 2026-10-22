@@ -22,7 +22,7 @@ SCHEMA_MAX_FIELDS = 50
 #: costs about 100 bytes of memory per character.
 LITERAL_MAX_CHARS = 2_000_000
 _PYTHON_ONLY = re.compile(r"\b(?:None|True|False)\b|'")
-_JSON_ONLY = re.compile(r'\b(?:null|true|false)\b(?=\s*[,\]}])')
+_JSON_ONLY = re.compile(r"\b(?:null|true|false)\b(?=\s*[,\]}])")
 
 
 def parse_text_payload(text: str) -> Any:
@@ -47,8 +47,11 @@ def parse_text_payload(text: str) -> Any:
             if rows and all(isinstance(row, dict) for row in rows):
                 return rows
         # Only text that looks like Python, not like (cut-off) JSON.
-        if (len(stripped) <= LITERAL_MAX_CHARS and _PYTHON_ONLY.search(stripped)
-                and not _JSON_ONLY.search(stripped)):
+        if (
+            len(stripped) <= LITERAL_MAX_CHARS
+            and _PYTHON_ONLY.search(stripped)
+            and not _JSON_ONLY.search(stripped)
+        ):
             try:  # literal_eval only builds literals, it runs no code
                 value = ast.literal_eval(stripped)
             except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
@@ -61,8 +64,14 @@ def parse_text_payload(text: str) -> Any:
 def _json_safe(value: Any) -> Any:
     """Python values as JSON would carry them: str keys, lists for tuples and sets."""
     if isinstance(value, dict):
-        return {k if isinstance(k, str) else json.dumps(k) if isinstance(k, (int, float, bool))
-                or k is None else str(k): _json_safe(v) for k, v in value.items()}
+        return {
+            k
+            if isinstance(k, str)
+            else json.dumps(k)
+            if isinstance(k, (int, float, bool)) or k is None
+            else str(k): _json_safe(v)
+            for k, v in value.items()
+        }
     if isinstance(value, (list, tuple, set, frozenset)):
         return [_json_safe(v) for v in value]
     if isinstance(value, bytes):
@@ -149,7 +158,11 @@ def _truncate_json(value: Any) -> Any:
 
 
 def cut_strings(
-    value: Any, limit: int, pointer: Any = None, path: str = "", max_items: int | None = None
+    value: Any,
+    limit: int,
+    pointer: Any = None,
+    path: str = "",
+    max_items: int | None = None,
 ) -> Any:
     """
     Copy of *value* with strings longer than *limit* cut, and nested lists
@@ -163,8 +176,11 @@ def cut_strings(
     if isinstance(value, str):
         if len(value) <= limit:
             return value
-        note = (pointer(path, len(value), "chars") if pointer
-                else f"{len(value):,} chars in total")
+        note = (
+            pointer(path, len(value), "chars")
+            if pointer
+            else f"{len(value):,} chars in total"
+        )
         return f"{value[:limit]}… [{note}]"
     if isinstance(value, dict):
         return {
@@ -172,12 +188,19 @@ def cut_strings(
             for k, v in value.items()
         }
     if isinstance(value, list):
-        shown = value if max_items is None or len(value) <= max_items else value[:max_items]
-        out = [cut_strings(v, limit, pointer, _join(path, str(i)), max_items)
-               for i, v in enumerate(shown)]
+        shown = (
+            value if max_items is None or len(value) <= max_items else value[:max_items]
+        )
+        out = [
+            cut_strings(v, limit, pointer, _join(path, str(i)), max_items)
+            for i, v in enumerate(shown)
+        ]
         if len(shown) < len(value):
-            note = (pointer(path, len(value), "items") if pointer
-                    else f"{len(value):,} items in total")
+            note = (
+                pointer(path, len(value), "items")
+                if pointer
+                else f"{len(value):,} items in total"
+            )
             out.append(f"… [{note}]")
         return out
     return value

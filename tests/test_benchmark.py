@@ -10,8 +10,8 @@ pytest.importorskip("fastmcp")
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "benchmarks"))
 
-import run  # noqa: E402
-import tasks  # noqa: E402
+import run
+import tasks
 
 
 def test_self_test_runs_every_task_and_condition(tmp_path, capsys):

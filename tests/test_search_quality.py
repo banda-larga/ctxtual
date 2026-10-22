@@ -108,9 +108,7 @@ class TestFieldSpecificSearch:
     def test_field_search_memory(self):
         ctx = _make_forge(MemoryStore())
         # "transformers" appears in title of item 2 but not in tags
-        results = ctx.store.search_items(
-            "ws_docs", "transformers", fields=["tags"]
-        )
+        results = ctx.store.search_items("ws_docs", "transformers", fields=["tags"])
         assert len(results) >= 1
         # Should only match via the tags field
         for r in results:
@@ -118,9 +116,7 @@ class TestFieldSpecificSearch:
 
     def test_field_search_sqlite(self, tmp_path):
         ctx = _make_forge(SQLiteStore(tmp_path / "search.db"))
-        results = ctx.store.search_items(
-            "ws_docs", "transformers", fields=["tags"]
-        )
+        results = ctx.store.search_items("ws_docs", "transformers", fields=["tags"])
         assert len(results) >= 1
         for r in results:
             assert "transformers" in r["tags"].lower()
@@ -132,9 +128,7 @@ class TestCaseSensitiveSearch:
 
     def test_case_sensitive_memory(self):
         ctx = _make_forge(MemoryStore())
-        results = ctx.store.search_items(
-            "ws_docs", "Machine", case_sensitive=True
-        )
+        results = ctx.store.search_items("ws_docs", "Machine", case_sensitive=True)
         assert len(results) >= 1
         # Should not match lowercase "machine"
         lower_results = ctx.store.search_items(
@@ -145,9 +139,7 @@ class TestCaseSensitiveSearch:
 
     def test_case_sensitive_sqlite(self, tmp_path):
         ctx = _make_forge(SQLiteStore(tmp_path / "search.db"))
-        results = ctx.store.search_items(
-            "ws_docs", "Machine", case_sensitive=True
-        )
+        results = ctx.store.search_items("ws_docs", "Machine", case_sensitive=True)
         assert len(results) >= 1
         ctx.store.close()
 
@@ -159,7 +151,13 @@ class TestFTSIndexMaintenance:
         ctx = _make_forge(SQLiteStore(tmp_path / "fts.db"))
         ctx.store.append_items(
             "ws_docs",
-            [{"title": "Quantum Computing", "body": "Qubits and superposition.", "tags": "quantum"}],
+            [
+                {
+                    "title": "Quantum Computing",
+                    "body": "Qubits and superposition.",
+                    "tags": "quantum",
+                }
+            ],
         )
         results = ctx.store.search_items("ws_docs", "quantum")
         assert len(results) == 1
@@ -172,7 +170,11 @@ class TestFTSIndexMaintenance:
         ctx.store.update_item(
             "ws_docs",
             0,
-            {"title": "Introduction to Robotics", "body": "Robots everywhere.", "tags": "robotics"},
+            {
+                "title": "Introduction to Robotics",
+                "body": "Robots everywhere.",
+                "tags": "robotics",
+            },
         )
         # Old content should not match
         results = ctx.store.search_items("ws_docs", "artificial intelligence")

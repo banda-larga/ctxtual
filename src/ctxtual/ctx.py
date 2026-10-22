@@ -232,7 +232,7 @@ class Ctx:
         producer_fn: str = "",
         producer_kwargs: dict[str, Any] | None = None,
         meta: dict[str, Any] | None = None,
-        ttl: float | None | _SentinelType = _SENTINEL,
+        ttl: float | _SentinelType | None = _SENTINEL,
         replace_if: ReplacePolicy | None = None,
     ) -> WorkspaceRef:
         """
@@ -302,9 +302,7 @@ class Ctx:
                     if first_line:
                         descriptions[t_name] = first_line
             if not ts_compatible and ts.tool_names:
-                expected = sorted(
-                    {ts.tool_shape(t) or "any" for t in ts.tool_names}
-                )
+                expected = sorted({ts.tool_shape(t) or "any" for t in ts.tool_names})
                 logger.warning(
                     "Workspace '%s' holds %s data but toolset '%s' expects "
                     "%s data; none of its tools (%s) are offered.",
@@ -403,7 +401,9 @@ class Ctx:
                 # A producer refreshes its own workspaces and may displace a
                 # saved pipeline result, never another producer's data.
                 if existing.producer_fn not in (fn_name, "pipeline"):
-                    return f"it was created by '{existing.producer_fn or 'another tool'}'"
+                    return (
+                        f"it was created by '{existing.producer_fn or 'another tool'}'"
+                    )
                 return None
 
             def _finish(raw_result: Any, call_kwargs: dict[str, Any]) -> Any:
@@ -1036,7 +1036,8 @@ class Ctx:
         # unsafe — in which case the caller asked for exceptions.
         if target.kind == "tool" or not self.safe:
             raise exc
-        logger.exception("Tool '%s' raised", tool_name)
+        # Called from the `except` blocks of dispatch, so the traceback is there.
+        logger.exception("Tool '%s' raised", tool_name)  # noqa: LOG004
         return {
             "error": f"{type(exc).__name__}: {exc}",
             "tool": tool_name,
@@ -1089,7 +1090,7 @@ class ConsumerContext:
         *,
         producer_fn: str = "",
         default_meta: dict[str, Any] | None = None,
-        default_ttl: float | None | _SentinelType = _SENTINEL,
+        default_ttl: float | _SentinelType | None = _SENTINEL,
     ) -> None:
         self._ctx = ctx
         self.input_workspace_id = input_workspace_id
@@ -1125,7 +1126,7 @@ class ConsumerContext:
         workspace_id: str | None = None,
         toolsets: list[ToolSet] | None = None,
         meta: dict[str, Any] | None = None,
-        ttl: float | None | _SentinelType = _SENTINEL,
+        ttl: float | _SentinelType | None = _SENTINEL,
     ) -> dict[str, Any]:
         """
         Store *payload* as a new workspace and return a ``WorkspaceRef`` dict.

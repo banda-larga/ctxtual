@@ -139,7 +139,9 @@ class TestShapeMismatchAtToolCall:
             "stuff_paginate", {"workspace_id": "ws_dict", "page": 0}
         )
         assert "error" in result
-        assert "shape" in result["error"].lower() or "mismatch" in result["error"].lower()
+        assert (
+            "shape" in result["error"].lower() or "mismatch" in result["error"].lower()
+        )
         assert result["expected_shape"] == "list"
         assert result["actual_shape"] == "dict"
         assert "suggested_action" in result
@@ -157,9 +159,7 @@ class TestShapeMismatchAtToolCall:
         ctx.store.init_workspace(meta)
         ctx.store.set_items("ws_list", [1, 2, 3])
 
-        result = ctx.dispatch_tool_call(
-            "stuff_get_keys", {"workspace_id": "ws_list"}
-        )
+        result = ctx.dispatch_tool_call("stuff_get_keys", {"workspace_id": "ws_list"})
         assert "error" in result
         assert result["expected_shape"] == "dict"
         assert result["actual_shape"] == "list"

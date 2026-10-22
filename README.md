@@ -104,7 +104,7 @@ from fastmcp import FastMCP
 from ctxtual.mcp import Offload
 
 mcp = FastMCP("my-server")
-mcp.add_middleware(Offload())          # results > 20,000 chars are stored
+mcp.add_middleware(Offload())  # results > 20,000 chars are stored
 ```
 
 Options: `threshold`, per-tool `thresholds`, `include`/`exclude`, `ttl`
@@ -147,7 +147,7 @@ Zero dependencies (standard library only), Python 3.11+.
 ```python
 @ctx.producer(workspace_type="papers", toolsets=[paginator(ctx), text_search(ctx)])
 def search_papers(query: str) -> list[dict]:
-    return database.search(query)          # 10,000 rows → stored, not returned
+    return database.search(query)  # 10,000 rows → stored, not returned
 ```
 
 Calling the producer (directly or as a tool call from the model) returns:
@@ -183,34 +183,44 @@ from ctxtual.utils import filter_set, paginator, pipeline, text_search
 
 ctx = Ctx(store=MemoryStore())
 
-@ctx.producer(workspace_type="papers", toolsets=[
-    paginator(ctx),
-    text_search(ctx, fields=["title", "abstract"]),
-    filter_set(ctx),
-    pipeline(ctx),
-])
+
+@ctx.producer(
+    workspace_type="papers",
+    toolsets=[
+        paginator(ctx),
+        text_search(ctx, fields=["title", "abstract"]),
+        filter_set(ctx),
+        pipeline(ctx),
+    ],
+)
 def search_papers(query: str, limit: int = 10_000) -> list[dict]:
     """Search the paper database."""
     return database.search(query, limit)
 
+
 ref = search_papers("machine learning")
 ws = ref["workspace_id"]
 
-ctx.dispatch_tool_call("papers_paginate",  {"workspace_id": ws, "page": 0, "size": 10})
-ctx.dispatch_tool_call("papers_search",    {"workspace_id": ws, "query": "transformer"})
-ctx.dispatch_tool_call("papers_filter_by", {"workspace_id": ws, "field": "year",
-                                            "value": 2024, "operator": "gte"})
+ctx.dispatch_tool_call("papers_paginate", {"workspace_id": ws, "page": 0, "size": 10})
+ctx.dispatch_tool_call("papers_search", {"workspace_id": ws, "query": "transformer"})
+ctx.dispatch_tool_call(
+    "papers_filter_by",
+    {"workspace_id": ws, "field": "year", "value": 2024, "operator": "gte"},
+)
 
 # Or several operations in one call:
-ctx.dispatch_tool_call("papers_pipe", {
-    "workspace_id": ws,
-    "steps": [
-        {"search": {"query": "transformer"}},
-        {"filter": {"year": {"$gte": 2024}}},
-        {"sort": {"field": "citations", "order": "desc"}},
-        {"limit": 5},
-    ],
-})
+ctx.dispatch_tool_call(
+    "papers_pipe",
+    {
+        "workspace_id": ws,
+        "steps": [
+            {"search": {"query": "transformer"}},
+            {"filter": {"year": {"$gte": 2024}}},
+            {"sort": {"field": "citations", "order": "desc"}},
+            {"limit": 5},
+        ],
+    },
+)
 ```
 
 In an agent loop you pass `ctx.get_tools()` to the model and send each tool
@@ -223,13 +233,13 @@ describing the registered tools.
 
 ```python
 @ctx.producer(
-    workspace_type="papers",            # logical data type
-    toolsets=[pager, search],           # tools offered for the stored data
-    key="papers_{query}",               # deterministic id (optional)
-    transform=lambda rows: rows[:5000], # pre-store transform (optional)
-    meta={"source": "arxiv"},           # metadata shown to the model
-    ttl=1800,                           # seconds until expiry (optional)
-    notify=True,                        # True: dict, False: WorkspaceRef
+    workspace_type="papers",  # logical data type
+    toolsets=[pager, search],  # tools offered for the stored data
+    key="papers_{query}",  # deterministic id (optional)
+    transform=lambda rows: rows[:5000],  # pre-store transform (optional)
+    meta={"source": "arxiv"},  # metadata shown to the model
+    ttl=1800,  # seconds until expiry (optional)
+    notify=True,  # True: dict, False: WorkspaceRef
 )
 def search_papers(query: str) -> list[dict]: ...
 ```
@@ -297,15 +307,23 @@ can't distinguish from `C` or `e`.
 returned.
 
 ```python
-ctx.dispatch_tool_call("papers_pipe", {
-    "workspace_id": ws,
-    "steps": [
-        {"flatten": "tags"},
-        {"group_by": {"field": "tags", "metrics": {"n": "count", "avg": "mean:citations"}}},
-        {"sort": {"field": "n", "order": "desc"}},
-        {"limit": 10},
-    ],
-})
+ctx.dispatch_tool_call(
+    "papers_pipe",
+    {
+        "workspace_id": ws,
+        "steps": [
+            {"flatten": "tags"},
+            {
+                "group_by": {
+                    "field": "tags",
+                    "metrics": {"n": "count", "avg": "mean:citations"},
+                }
+            },
+            {"sort": {"field": "n", "order": "desc"}},
+            {"limit": 10},
+        ],
+    },
+)
 ```
 
 | Step | Example |
@@ -344,9 +362,10 @@ through `dispatch_tool_call()`.
 ```python
 from ctxtual import ConsumerContext
 
+
 @ctx.consumer(
-    workspace_type="raw",            # input must be a "raw" workspace
-    produces="clean",                # output workspace type
+    workspace_type="raw",  # input must be a "raw" workspace
+    produces="clean",  # output workspace type
     produces_toolsets=[paginator(ctx)],
     meta={"stage": "cleaning"},
 )
@@ -364,8 +383,10 @@ Pass `expose=False` for consumers that only your own code should call.
 ## Dispatching tool calls
 
 ```python
-result = ctx.dispatch_tool_call("papers_search", {"workspace_id": ws, "query": "attention"})
-result = await ctx.adispatch_tool_call("papers_search", {...})   # async tools
+result = ctx.dispatch_tool_call(
+    "papers_search", {"workspace_id": ws, "query": "attention"}
+)
+result = await ctx.adispatch_tool_call("papers_search", {...})  # async tools
 ```
 
 `arguments` may be a dict or a JSON string. Mistakes the model can fix come
@@ -429,8 +450,10 @@ data_tools = [
     pipeline(ctx, "data", enforce_type=False),
 ]
 
+
 @ctx.producer(workspace_type="papers", toolsets=data_tools)
 def search_papers(query: str) -> list[dict]: ...
+
 
 @ctx.producer(workspace_type="people", toolsets=data_tools)
 def search_people(name: str) -> list[dict]: ...
@@ -445,6 +468,7 @@ sort and aggregation.
 ```python
 analytics = ctx.toolset("transactions")
 analytics.data_shape = "list"
+
 
 @analytics.tool(
     name="transactions_anomalies",
@@ -499,10 +523,15 @@ The adapters don't import any SDK; they work with SDK objects or plain dicts.
 
 ```python
 # OpenAI Chat Completions
-from ctxtual.integrations.openai import handle_tool_calls, has_tool_calls, to_openai_tools
+from ctxtual.integrations.openai import (
+    handle_tool_calls,
+    has_tool_calls,
+    to_openai_tools,
+)
 
-response = client.chat.completions.create(model=MODEL, messages=messages,
-                                          tools=to_openai_tools(ctx))
+response = client.chat.completions.create(
+    model=MODEL, messages=messages, tools=to_openai_tools(ctx)
+)
 if has_tool_calls(response):
     messages.append(response.choices[0].message)
     messages.extend(handle_tool_calls(ctx, response, session_id=conversation_id))
@@ -510,20 +539,35 @@ if has_tool_calls(response):
 
 ```python
 # Anthropic Messages
-from ctxtual.integrations.anthropic import handle_tool_use, has_tool_use, to_anthropic_tools
+from ctxtual.integrations.anthropic import (
+    handle_tool_use,
+    has_tool_use,
+    to_anthropic_tools,
+)
 
-response = client.messages.create(model="claude-sonnet-5-5", max_tokens=4096,
-                                  tools=to_anthropic_tools(ctx), messages=messages)
+response = client.messages.create(
+    model="claude-sonnet-5-5",
+    max_tokens=4096,
+    tools=to_anthropic_tools(ctx),
+    messages=messages,
+)
 if has_tool_use(response):
     messages.append({"role": "assistant", "content": response.content})
-    messages.append({"role": "user",
-                     "content": handle_tool_use(ctx, response, session_id=conversation_id)})
+    messages.append(
+        {
+            "role": "user",
+            "content": handle_tool_use(ctx, response, session_id=conversation_id),
+        }
+    )
 ```
 
 ```python
 # LangChain (requires langchain-core)
 from ctxtual.integrations.langchain import to_langchain_tools
-tools = to_langchain_tools(ctx, session_id=conversation_id)   # supports invoke and ainvoke
+
+tools = to_langchain_tools(
+    ctx, session_id=conversation_id
+)  # supports invoke and ainvoke
 ```
 
 Async variants: `ahandle_tool_calls`, `ahandle_tool_use`.
@@ -594,7 +638,8 @@ git clone https://github.com/banda-larga/ctxtual.git
 cd ctxtual
 uv sync --extra dev --extra mcp
 uv run pytest
-uv run ruff check src/ tests/ benchmarks/
+uv run ruff check .
+uv run ruff format .
 ```
 
 [`benchmarks/`](benchmarks/README.md) measures ctxtual with real models

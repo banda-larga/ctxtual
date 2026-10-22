@@ -75,14 +75,21 @@ class TestWorkspaceRefPreview:
     """The LLM must know field names immediately — no paginate-to-discover."""
 
     def test_ref_includes_item_schema_with_fields(self, full_forge):
-        ctx, search_papers = full_forge
+        _ctx, search_papers = full_forge
         ref = search_papers("test")
         assert "item_schema" in ref
         props = ref["item_schema"]["properties"]
-        assert list(props.keys()) == ["title", "year", "authors", "citations", "field", "abstract"]
+        assert list(props.keys()) == [
+            "title",
+            "year",
+            "authors",
+            "citations",
+            "field",
+            "abstract",
+        ]
 
     def test_ref_includes_item_schema(self, full_forge):
-        ctx, search_papers = full_forge
+        _ctx, search_papers = full_forge
         ref = search_papers("test")
         assert "item_schema" in ref
         schema = ref["item_schema"]
@@ -95,7 +102,15 @@ class TestWorkspaceRefPreview:
 
         @ctx.producer(workspace_type="docs", toolsets=[pager])
         def fetch_docs():
-            return [{"content": "x" * 200, "id": 1, "score": 0.5, "tags": ["a"], "active": True}]
+            return [
+                {
+                    "content": "x" * 200,
+                    "id": 1,
+                    "score": 0.5,
+                    "tags": ["a"],
+                    "active": True,
+                }
+            ]
 
         ref = fetch_docs()
         schema = ref["item_schema"]
@@ -169,7 +184,7 @@ class TestWorkspaceRefPreview:
         assert ref.get("item_schema") is None
 
     def test_ref_is_json_serializable(self, full_forge):
-        ctx, search_papers = full_forge
+        _ctx, search_papers = full_forge
         ref = search_papers("test")
         # Must not raise
         serialized = json.dumps(ref, default=str)
@@ -259,9 +274,7 @@ class TestPipelineSchemaQuality:
     def test_steps_has_examples(self, full_forge):
         ctx, _ = full_forge
         schemas = ctx.get_all_tool_schemas()
-        pipe_schema = next(
-            s for s in schemas if s["function"]["name"] == "papers_pipe"
-        )
+        pipe_schema = next(s for s in schemas if s["function"]["name"] == "papers_pipe")
         steps_prop = pipe_schema["function"]["parameters"]["properties"]["steps"]
         assert "examples" in steps_prop
         examples = steps_prop["examples"]
@@ -270,9 +283,7 @@ class TestPipelineSchemaQuality:
     def test_steps_items_has_description(self, full_forge):
         ctx, _ = full_forge
         schemas = ctx.get_all_tool_schemas()
-        pipe_schema = next(
-            s for s in schemas if s["function"]["name"] == "papers_pipe"
-        )
+        pipe_schema = next(s for s in schemas if s["function"]["name"] == "papers_pipe")
         steps_prop = pipe_schema["function"]["parameters"]["properties"]["steps"]
         assert "items" in steps_prop
         assert "description" in steps_prop["items"]
@@ -285,16 +296,19 @@ class TestPipelineSchemaQuality:
         ws_id = ref["workspace_id"]
 
         schemas = ctx.get_all_tool_schemas()
-        pipe_schema = next(
-            s for s in schemas if s["function"]["name"] == "papers_pipe"
-        )
-        examples = pipe_schema["function"]["parameters"]["properties"]["steps"]["examples"]
+        pipe_schema = next(s for s in schemas if s["function"]["name"] == "papers_pipe")
+        examples = pipe_schema["function"]["parameters"]["properties"]["steps"][
+            "examples"
+        ]
 
         for i, example in enumerate(examples):
-            result = ctx.dispatch_tool_call("papers_pipe", {
-                "workspace_id": ws_id,
-                "steps": example,
-            })
+            result = ctx.dispatch_tool_call(
+                "papers_pipe",
+                {
+                    "workspace_id": ws_id,
+                    "steps": example,
+                },
+            )
             assert "error" not in result, f"Example {i} failed: {result}"
 
     def test_metrics_has_examples(self, full_forge):
@@ -343,11 +357,14 @@ class TestSaveAsNotification:
         ref = search_papers("test")
         ws_id = ref["workspace_id"]
 
-        result = ctx.dispatch_tool_call("papers_pipe", {
-            "workspace_id": ws_id,
-            "steps": [{"filter": {"year": {"$gte": 2019}}}],
-            "save_as": "recent",
-        })
+        result = ctx.dispatch_tool_call(
+            "papers_pipe",
+            {
+                "workspace_id": ws_id,
+                "steps": [{"filter": {"year": {"$gte": 2019}}}],
+                "save_as": "recent",
+            },
+        )
         assert "available_tools" in result
         assert any("recent" in t for t in result["available_tools"])
 
@@ -356,11 +373,14 @@ class TestSaveAsNotification:
         ref = search_papers("test")
         ws_id = ref["workspace_id"]
 
-        result = ctx.dispatch_tool_call("papers_pipe", {
-            "workspace_id": ws_id,
-            "steps": [{"select": ["title", "year"]}],
-            "save_as": "projected",
-        })
+        result = ctx.dispatch_tool_call(
+            "papers_pipe",
+            {
+                "workspace_id": ws_id,
+                "steps": [{"select": ["title", "year"]}],
+                "save_as": "projected",
+            },
+        )
         assert "item_schema" in result
         assert set(result["item_schema"]["properties"].keys()) == {"title", "year"}
 
@@ -369,11 +389,14 @@ class TestSaveAsNotification:
         ref = search_papers("test")
         ws_id = ref["workspace_id"]
 
-        result = ctx.dispatch_tool_call("papers_pipe", {
-            "workspace_id": ws_id,
-            "steps": [{"limit": 2}],
-            "save_as": "top2",
-        })
+        result = ctx.dispatch_tool_call(
+            "papers_pipe",
+            {
+                "workspace_id": ws_id,
+                "steps": [{"limit": 2}],
+                "save_as": "top2",
+            },
+        )
         assert "item_schema" in result
         schema = result["item_schema"]
         assert schema["type"] == "object"
@@ -384,11 +407,14 @@ class TestSaveAsNotification:
         ref = search_papers("test")
         ws_id = ref["workspace_id"]
 
-        result = ctx.dispatch_tool_call("papers_pipe", {
-            "workspace_id": ws_id,
-            "steps": [{"limit": 1}],
-            "save_as": "one",
-        })
+        result = ctx.dispatch_tool_call(
+            "papers_pipe",
+            {
+                "workspace_id": ws_id,
+                "steps": [{"limit": 1}],
+                "save_as": "one",
+            },
+        )
         assert "next_steps" in result
         assert len(result["next_steps"]) > 0
 
@@ -398,18 +424,24 @@ class TestSaveAsNotification:
         ref = search_papers("test")
         ws_id = ref["workspace_id"]
 
-        saved = ctx.dispatch_tool_call("papers_pipe", {
-            "workspace_id": ws_id,
-            "steps": [{"filter": {"year": {"$gte": 2019}}}],
-            "save_as": "browsable",
-        })
+        saved = ctx.dispatch_tool_call(
+            "papers_pipe",
+            {
+                "workspace_id": ws_id,
+                "steps": [{"filter": {"year": {"$gte": 2019}}}],
+                "save_as": "browsable",
+            },
+        )
 
         # Should be browsable with all the registered tools
-        page = ctx.dispatch_tool_call("papers_paginate", {
-            "workspace_id": saved["workspace_id"],
-            "page": 0,
-            "size": 10,
-        })
+        page = ctx.dispatch_tool_call(
+            "papers_paginate",
+            {
+                "workspace_id": saved["workspace_id"],
+                "page": 0,
+                "size": 10,
+            },
+        )
         assert "result" in page  # hint envelope
         assert page["result"]["total"] == 2
 
@@ -418,11 +450,14 @@ class TestSaveAsNotification:
         ref = search_papers("test")
         ws_id = ref["workspace_id"]
 
-        result = ctx.dispatch_tool_call("papers_pipe", {
-            "workspace_id": ws_id,
-            "steps": [{"limit": 1}],
-            "save_as": "saved",
-        })
+        result = ctx.dispatch_tool_call(
+            "papers_pipe",
+            {
+                "workspace_id": ws_id,
+                "steps": [{"limit": 1}],
+                "save_as": "saved",
+            },
+        )
         assert result["status"] == "pipeline_result_saved"
 
 
@@ -448,17 +483,23 @@ class TestEndToEndLLMWorkflow:
         ws_id = ref["workspace_id"]
 
         # Step 3: LLM constructs pipeline using field knowledge
-        result = ctx.dispatch_tool_call("papers_pipe", {
-            "workspace_id": ws_id,
-            "steps": [
-                {"filter": {"year": {"$gte": 2019}}},
-                {"sort": {"field": "citations", "order": "desc"}},
-                {"select": ["title", "year", "citations"]},
-            ],
-        })
+        result = ctx.dispatch_tool_call(
+            "papers_pipe",
+            {
+                "workspace_id": ws_id,
+                "steps": [
+                    {"filter": {"year": {"$gte": 2019}}},
+                    {"sort": {"field": "citations", "order": "desc"}},
+                    {"select": ["title", "year", "citations"]},
+                ],
+            },
+        )
         assert "error" not in result
         assert result["count"] == 2
-        assert result["items"][0]["title"] == "BERT: Pre-training of Deep Bidirectional Transformers"
+        assert (
+            result["items"][0]["title"]
+            == "BERT: Pre-training of Deep Bidirectional Transformers"
+        )
 
     def test_system_prompt_plus_schemas_is_complete(self, full_forge):
         """System prompt + tool schemas give the LLM everything it needs."""
@@ -477,7 +518,9 @@ class TestEndToEndLLMWorkflow:
 
         # Pipe schema has examples
         pipe_schema = next(s for s in schemas if s["function"]["name"] == "papers_pipe")
-        assert "examples" in pipe_schema["function"]["parameters"]["properties"]["steps"]
+        assert (
+            "examples" in pipe_schema["function"]["parameters"]["properties"]["steps"]
+        )
 
     def test_error_includes_recovery_guidance(self, full_forge):
         """When LLM makes a mistake, error tells it what to do."""
@@ -485,9 +528,12 @@ class TestEndToEndLLMWorkflow:
         search_papers("test")
 
         # Wrong workspace_id
-        result = ctx.dispatch_tool_call("papers_paginate", {
-            "workspace_id": "nonexistent",
-        })
+        result = ctx.dispatch_tool_call(
+            "papers_paginate",
+            {
+                "workspace_id": "nonexistent",
+            },
+        )
         assert "error" in result
         assert "suggested_action" in result
         assert "available_workspaces" in result
@@ -500,7 +546,7 @@ class TestEndToEndLLMWorkflow:
         assert len(serialized) > 500
 
     def test_notification_is_json_serializable(self, full_forge):
-        ctx, search_papers = full_forge
+        _ctx, search_papers = full_forge
         ref = search_papers("test")
         serialized = json.dumps(ref, default=str)
         roundtrip = json.loads(serialized)

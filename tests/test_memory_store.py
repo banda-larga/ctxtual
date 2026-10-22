@@ -111,7 +111,11 @@ class TestMemoryStoreMutations:
         new_count = memory_store.append_items(ws_id, [{"a": 4}, {"a": 5}])
         assert new_count == 5
         assert memory_store.get_items(ws_id) == [
-            {"a": 1}, {"a": 2}, {"a": 3}, {"a": 4}, {"a": 5},
+            {"a": 1},
+            {"a": 2},
+            {"a": 3},
+            {"a": 4},
+            {"a": 5},
         ]
         assert memory_store.count_items(ws_id) == 5
 

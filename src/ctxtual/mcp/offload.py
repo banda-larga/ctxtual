@@ -176,7 +176,9 @@ class Offload(ToolInjectionMiddleware):
         self._scope_fn = scope or _principal_scope
         self._engine = PipelineEngine(allow_regex=allow_regex)
         # Expiry and eviction are handled here (idle timeout, size cap).
-        self.ctx = Ctx(store=store or MemoryStore(), default_ttl=None, max_result_chars=None)
+        self.ctx = Ctx(
+            store=store or MemoryStore(), default_ttl=None, max_result_chars=None
+        )
         self._upstream_tool_names = upstream_tool_names
         self._clash_checked = upstream_tool_names is None
         self._clash_lock = asyncio.Lock()
@@ -248,7 +250,11 @@ class Offload(ToolInjectionMiddleware):
         tools = await call_next(context)
         result = []
         for tool in tools:
-            if tool.name not in self._own_names and self.applies_to(tool.name) and tool.output_schema:
+            if (
+                tool.name not in self._own_names
+                and self.applies_to(tool.name)
+                and tool.output_schema
+            ):
                 # A stored-result notice is not the declared output, and
                 # clients are told to validate structured results.
                 tool = tool.model_copy(update={"output_schema": None})
@@ -275,7 +281,9 @@ class Offload(ToolInjectionMiddleware):
         if result.is_error:
             return self._trim_error(result, limit)
         try:
-            return self._maybe_store(name, dict(context.message.arguments or {}), result, limit)
+            return self._maybe_store(
+                name, dict(context.message.arguments or {}), result, limit
+            )
         except Exception:  # never lose a result because storing failed
             logger.exception("ctxtual: could not store result of %s", name)
             return result
@@ -324,10 +332,14 @@ class Offload(ToolInjectionMiddleware):
         extra: dict[str, Any] = {}
         if structured is not None and 2 * _json_len(structured) >= len(text):
             payload = unwrap_structured(structured)
-            if isinstance(payload, str):  # e.g. a `-> str` tool: still JSON / JSON Lines?
+            if isinstance(
+                payload, str
+            ):  # e.g. a `-> str` tool: still JSON / JSON Lines?
                 payload = parse_text_payload(payload)
             if text.strip() and 2 * len(text) < _json_len(structured):
-                extra["message"] = _trim(text, 2_000, "the message")  # a summary next to the data
+                extra["message"] = _trim(
+                    text, 2_000, "the message"
+                )  # a summary next to the data
         else:
             payload = _parse_parts(parts)
             filled = [uri for t, uri in parts if t.strip()]
@@ -354,7 +366,9 @@ class Offload(ToolInjectionMiddleware):
             if overflow is not None and other_fields is not None:
                 # The list's other fields didn't fit the preview: store them
                 # too, so nothing of the result is out of reach.
-                rest_text = json.dumps(overflow, ensure_ascii=False, indent=1, default=str)
+                rest_text = json.dumps(
+                    overflow, ensure_ascii=False, indent=1, default=str
+                )
                 rest_ref = self.ctx.store_workspace(
                     rest_text,
                     workspace_type=name,
@@ -363,12 +377,19 @@ class Offload(ToolInjectionMiddleware):
                     meta={"chars": len(rest_text)},
                 )
                 kept_ids.add(rest_ref.workspace_id)
-                other_fields["…"] = (f"cut here; all other fields are stored as result_id "
-                                     f"{rest_ref.workspace_id!r}")
+                other_fields["…"] = (
+                    f"cut here; all other fields are stored as result_id "
+                    f"{rest_ref.workspace_id!r}"
+                )
             self._evict(keep=kept_ids)
         notice = self._notice(
-            ref.workspace_id, name, payload, size, other_fields,
-            has_arguments=bool(arguments), extra=extra,
+            ref.workspace_id,
+            name,
+            payload,
+            size,
+            other_fields,
+            has_arguments=bool(arguments),
+            extra=extra,
         )
         return ToolResult(
             content=[TextContent(type="text", text=_dumps(notice)), *kept],
@@ -391,15 +412,22 @@ class Offload(ToolInjectionMiddleware):
             meta = store.get_meta(ws_id)
             if meta is None:
                 continue
-            if self.ttl is not None and now - meta.last_accessed_at > self.ttl and ws_id not in keep:
+            if (
+                self.ttl is not None
+                and now - meta.last_accessed_at > self.ttl
+                and ws_id not in keep
+            ):
                 store.drop_workspace(ws_id)
             else:
                 groups.setdefault(meta.session_id, []).append(meta)
         for metas in groups.values():
             metas.sort(key=lambda m: (m.workspace_id in keep, m.last_accessed_at))
             total = sum(int(m.extra.get("chars", 0)) for m in metas)
-            while (metas and metas[0].workspace_id not in keep
-                   and (len(metas) > self.max_results or total > self.max_total_chars)):
+            while (
+                metas
+                and metas[0].workspace_id not in keep
+                and (len(metas) > self.max_results or total > self.max_total_chars)
+            ):
                 oldest = metas.pop(0)
                 total -= int(oldest.extra.get("chars", 0))
                 store.drop_workspace(oldest.workspace_id)
@@ -433,13 +461,17 @@ class Offload(ToolInjectionMiddleware):
             )
             if "search" in self.tools:
                 steps.append(f"{p}_search(result_id, query) to find items by text")
-            if "query" in self.tools and any(isinstance(i, dict) for i in payload[:200]):
+            if "query" in self.tools and any(
+                isinstance(i, dict) for i in payload[:200]
+            ):
                 steps.append(
                     f"{p}_query(result_id, steps) to filter, sort and count, e.g. "
                     f"steps={_example_steps(payload, fields or {})}"
                 )
             if "read" in self.tools:
-                steps.append(f"{p}_read(result_id, page) or {p}_read(result_id, index=N) to read items")
+                steps.append(
+                    f"{p}_read(result_id, page) or {p}_read(result_id, index=N) to read items"
+                )
         else:
             text = payload
             pages = max(1, math.ceil(len(text) / PAGE_CHARS))
@@ -460,7 +492,9 @@ class Offload(ToolInjectionMiddleware):
             if "search" in self.tools:
                 steps.append(f"{p}_search(result_id, query) to find passages")
             if "read" in self.tools:
-                steps.append(f"{p}_read(result_id, page) to read it ({pages:,} pages of {PAGE_CHARS:,} chars)")
+                steps.append(
+                    f"{p}_read(result_id, page) to read it ({pages:,} pages of {PAGE_CHARS:,} chars)"
+                )
         if other_fields:
             notice["other_fields"] = other_fields
         how = f"{lead}. " + ("Use " + "; ".join(steps) + "." if steps else "")
@@ -509,10 +543,13 @@ class Offload(ToolInjectionMiddleware):
         logger.warning(
             "The wrapped server has tools named %s; ctxtual's tools are renamed "
             "to %s_* so they don't hide them (or pass --prefix).",
-            ", ".join(clashes), prefix,
+            ", ".join(clashes),
+            prefix,
         )
 
-    def _tool(self, fn: Callable[..., Any], name: str, description: str, size_hint: str) -> Tool:
+    def _tool(
+        self, fn: Callable[..., Any], name: str, description: str, size_hint: str
+    ) -> Tool:
         async def call(**kwargs: Any) -> ToolResult:
             try:
                 with self._scope():
@@ -521,7 +558,8 @@ class Offload(ToolInjectionMiddleware):
                 if size > self.max_output_chars:
                     raise _FixableError(
                         f"The response would be {size:,} chars, more than "
-                        f"{self.max_output_chars:,}.", size_hint,
+                        f"{self.max_output_chars:,}.",
+                        size_hint,
                     )
                 return _result(value)
             except _FixableError as problem:
@@ -541,15 +579,28 @@ class Offload(ToolInjectionMiddleware):
 
     def _search_tool(self) -> Tool:
         p = self.prefix
-        open_hint = (f" (open one with {p}_read(result_id, index=…))"
-                     if "read" in self.tools else "")
+        open_hint = (
+            f" (open one with {p}_read(result_id, index=…))"
+            if "read" in self.tools
+            else ""
+        )
 
         def search(
-            result_id: Annotated[Any, _param(_STR, "result_id from a stored-result notice.")],
+            result_id: Annotated[
+                Any, _param(_STR, "result_id from a stored-result notice.")
+            ],
             query: Annotated[Any, _param(_STR, "Words to look for.")],
-            max_results: Annotated[Any, _param(_INT, f"Most hits to return (up to {MAX_ITEMS}).", 10)] = 10,
-            fields: Annotated[Any, _param(_FIELDS, "Only return these fields of each item "
-                                          "(dot paths allowed).", None)] = None,
+            max_results: Annotated[
+                Any, _param(_INT, f"Most hits to return (up to {MAX_ITEMS}).", 10)
+            ] = 10,
+            fields: Annotated[
+                Any,
+                _param(
+                    _FIELDS,
+                    "Only return these fields of each item (dot paths allowed).",
+                    None,
+                ),
+            ] = None,
         ) -> Any:
             _, payload = self._load(result_id)
             limit = _clamp(_int_arg("max_results", max_results), 1, MAX_ITEMS)
@@ -559,10 +610,15 @@ class Offload(ToolInjectionMiddleware):
                 raise _FixableError("query is empty.", "Pass the words to look for.")
             if not isinstance(payload, list):
                 if fields:
-                    raise _FixableError("This stored result is a text; fields= applies to lists.",
-                                        "Search it without fields.")
-                return {"result_id": result_id, "max_results": limit,
-                        **_passages(payload, query, limit)}
+                    raise _FixableError(
+                        "This stored result is a text; fields= applies to lists.",
+                        "Search it without fields.",
+                    )
+                return {
+                    "result_id": result_id,
+                    "max_results": limit,
+                    **_passages(payload, query, limit),
+                }
             terms = query_terms(query.lower())
             scored = []
             for index, item in enumerate(payload):
@@ -571,43 +627,78 @@ class Offload(ToolInjectionMiddleware):
                     scored.append((score, index, item))
             scored.sort(key=lambda t: (-t[0], t[1]))
             all_terms = sum(
-                1 for _, _, item in scored
-                if all(t in json.dumps(item, ensure_ascii=False, default=str).lower() for t in terms)
+                1
+                for _, _, item in scored
+                if all(
+                    t in json.dumps(item, ensure_ascii=False, default=str).lower()
+                    for t in terms
+                )
             )
             hits = []
             for _, i, item in scored[:limit]:
-                hit = {"index": i, "item": self._shape(i, item, fields, HIT_STRING_CHARS)}
+                hit = {
+                    "index": i,
+                    "item": self._shape(i, item, fields, HIT_STRING_CHARS),
+                }
                 # Where the words are, when the cut item doesn't show it.
                 match = _match_passage(item, query_terms(query), HIT_STRING_CHARS)
                 if match is not None:
                     hit["match"] = match
                 hits.append(hit)
-            return {"result_id": result_id, "matching_any_word": len(scored),
-                    "matching_all_words": all_terms, "returned": len(hits),
-                    "max_results": limit, "hits": hits}
+            return {
+                "result_id": result_id,
+                "matching_any_word": len(scored),
+                "matching_all_words": all_terms,
+                "returned": len(hits),
+                "max_results": limit,
+                "hits": hits,
+            }
 
-        return self._tool(search, f"{p}_search", (
-            f"Search a stored result.{_STORED} For a list: the best-matching items, best "
-            f"first, each with its index{open_hint} and, when the words are deep inside "
-            "a long value, the passage that contains them. For a text: the passages "
-            "that contain the query (the exact phrase if it occurs, else the most query "
-            "words), each with its page."
-        ), size_hint="Ask for less: a smaller max_results, or fields=[...] with only "
-                     "the fields you need.")
+        return self._tool(
+            search,
+            f"{p}_search",
+            (
+                f"Search a stored result.{_STORED} For a list: the best-matching items, best "
+                f"first, each with its index{open_hint} and, when the words are deep inside "
+                "a long value, the passage that contains them. For a text: the passages "
+                "that contain the query (the exact phrase if it occurs, else the most query "
+                "words), each with its page."
+            ),
+            size_hint="Ask for less: a smaller max_results, or fields=[...] with only "
+            "the fields you need.",
+        )
 
     def _read_tool(self) -> Tool:
         p = self.prefix
 
         def read(
-            result_id: Annotated[Any, _param(_STR, "result_id from a stored-result notice.")],
+            result_id: Annotated[
+                Any, _param(_STR, "result_id from a stored-result notice.")
+            ],
             page: Annotated[Any, _param(_INT, "Zero-based page.", 0)] = 0,
-            page_size: Annotated[Any, _param(_INT, f"Items per page, for lists (up to {MAX_ITEMS}).", 10)] = 10,
-            index: Annotated[Any, _param(_INT, "Read this one item of a list.", None)] = None,
-            field: Annotated[Any, _param(
-                _STR, "With index: read this value of the item in full, page by page (dot "
-                "paths allowed, e.g. 'author.bio' or 'comments.0.body').", None)] = None,
-            fields: Annotated[Any, _param(_FIELDS, "Only return these fields of each item "
-                                          "(dot paths allowed).", None)] = None,
+            page_size: Annotated[
+                Any, _param(_INT, f"Items per page, for lists (up to {MAX_ITEMS}).", 10)
+            ] = 10,
+            index: Annotated[
+                Any, _param(_INT, "Read this one item of a list.", None)
+            ] = None,
+            field: Annotated[
+                Any,
+                _param(
+                    _STR,
+                    "With index: read this value of the item in full, page by page (dot "
+                    "paths allowed, e.g. 'author.bio' or 'comments.0.body').",
+                    None,
+                ),
+            ] = None,
+            fields: Annotated[
+                Any,
+                _param(
+                    _FIELDS,
+                    "Only return these fields of each item (dot paths allowed).",
+                    None,
+                ),
+            ] = None,
         ) -> Any:
             _, payload = self._load(result_id)
             page = _int_arg("page", page)
@@ -621,59 +712,102 @@ class Offload(ToolInjectionMiddleware):
                 if index is not None or field is not None or fields:
                     raise _FixableError(
                         "This stored result is a text; index, field and fields apply to lists.",
-                        f"Read it by page, or find passages with {p}_search.")
+                        f"Read it by page, or find passages with {p}_search.",
+                    )
                 return {"result_id": result_id, **_text_page(payload, page)}
             if field is not None and index is None:
-                raise _FixableError("field needs an index.", "Pass index=N with field=….")
+                raise _FixableError(
+                    "field needs an index.", "Pass index=N with field=…."
+                )
             if index is None:
                 size = _clamp(page_size, 1, MAX_ITEMS)
                 start = page * size
                 pages = max(1, math.ceil(len(payload) / size))
                 if start >= len(payload) and payload:
-                    raise _FixableError(f"Page {page} is past the end ({pages} pages).",
-                                        f"Use a page from 0 to {pages - 1}.")
+                    raise _FixableError(
+                        f"Page {page} is past the end ({pages} pages).",
+                        f"Use a page from 0 to {pages - 1}.",
+                    )
                 items = [
-                    {"index": i, "item": self._shape(i, payload[i], fields, LIST_STRING_CHARS)}
+                    {
+                        "index": i,
+                        "item": self._shape(i, payload[i], fields, LIST_STRING_CHARS),
+                    }
                     for i in range(start, min(start + size, len(payload)))
                 ]
-                return {"result_id": result_id, "page": page, "page_size": size, "pages": pages,
-                        "total": len(payload), "has_more": start + size < len(payload),
-                        "items": items}
+                return {
+                    "result_id": result_id,
+                    "page": page,
+                    "page_size": size,
+                    "pages": pages,
+                    "total": len(payload),
+                    "has_more": start + size < len(payload),
+                    "items": items,
+                }
             if not 0 <= index < len(payload):
-                raise _FixableError(f"Index {index} is out of range.",
-                                    f"Use an index from 0 to {len(payload) - 1}.")
+                raise _FixableError(
+                    f"Index {index} is out of range.",
+                    f"Use an index from 0 to {len(payload) - 1}.",
+                )
             item = payload[index]
             if field is None:
                 if isinstance(item, str) and len(item) > ITEM_STRING_CHARS:
-                    return {"result_id": result_id, "index": index, **_text_page(item, page)}
+                    return {
+                        "result_id": result_id,
+                        "index": index,
+                        **_text_page(item, page),
+                    }
                 # Cut long values shorter until the item fits the response.
                 limit, many = ITEM_STRING_CHARS, MAX_ITEMS
                 while True:
-                    response = {"result_id": result_id, "index": index,
-                                "item": self._shape(index, item, fields, limit, many)}
+                    response = {
+                        "result_id": result_id,
+                        "index": index,
+                        "item": self._shape(index, item, fields, limit, many),
+                    }
                     if limit <= 200 or _json_len(response) <= self.max_output_chars:
                         return response
                     limit, many = limit // 2, max(5, many // 2)
             value = resolve_path(item, field)
             if value is MISSING:
-                available = [str(k) for k in item][:50] if isinstance(item, dict) else []
-                raise _FixableError(f"Item {index} has no field {field!r}.",
-                                    "Use one of the item's fields.", fields=available)
+                available = (
+                    [str(k) for k in item][:50] if isinstance(item, dict) else []
+                )
+                raise _FixableError(
+                    f"Item {index} has no field {field!r}.",
+                    "Use one of the item's fields.",
+                    fields=available,
+                )
             encoded = value if isinstance(value, str) else _dumps(value)
             if len(encoded) <= PAGE_CHARS:
-                return {"result_id": result_id, "index": index, "field": field, "value": value}
-            return {"result_id": result_id, "index": index, "field": field, **_text_page(encoded, page)}
+                return {
+                    "result_id": result_id,
+                    "index": index,
+                    "field": field,
+                    "value": value,
+                }
+            return {
+                "result_id": result_id,
+                "index": index,
+                "field": field,
+                **_text_page(encoded, page),
+            }
 
-        return self._tool(read, f"{p}_read", (
-            f"Read a stored result.{_STORED} A text: page by page ({PAGE_CHARS:,} chars "
-            "each). A list: a page of items, or one item with index=N; long values in an "
-            "item are cut, read one in full with index=N and field=… (paged the same "
-            "way). fields=[...] keeps only some fields.\n"
-            "Arguments besides result_id, for example: none (the first page); page=3; "
-            "index=7; index=7, field='body', page=1; page=2, page_size=20, "
-            "fields=['title', 'state']."
-        ), size_hint="Ask for less: a smaller page_size, or fields=[...] with only the "
-                     "fields you need.")
+        return self._tool(
+            read,
+            f"{p}_read",
+            (
+                f"Read a stored result.{_STORED} A text: page by page ({PAGE_CHARS:,} chars "
+                "each). A list: a page of items, or one item with index=N; long values in an "
+                "item are cut, read one in full with index=N and field=… (paged the same "
+                "way). fields=[...] keeps only some fields.\n"
+                "Arguments besides result_id, for example: none (the first page); page=3; "
+                "index=7; index=7, field='body', page=1; page=2, page_size=20, "
+                "fields=['title', 'state']."
+            ),
+            size_hint="Ask for less: a smaller page_size, or fields=[...] with only the "
+            "fields you need.",
+        )
 
     def _query_tool(self) -> Tool:
         p = self.prefix
@@ -681,49 +815,73 @@ class Offload(ToolInjectionMiddleware):
 
         def query(
             result_id: Annotated[Any, _param(_STR, "result_id of a stored list.")],
-            steps: Annotated[Any, _param(
-                {"type": "array", "items": {"type": "object"}},
-                "Operations applied in order; each is {operation: parameters}.")],
-            save_as: Annotated[Any, _param(
-                _STR, "Store the full output as a new result named saved_<name> instead of "
-                "returning it; saving again under the same name replaces it.", None)] = None,
+            steps: Annotated[
+                Any,
+                _param(
+                    {"type": "array", "items": {"type": "object"}},
+                    "Operations applied in order; each is {operation: parameters}.",
+                ),
+            ],
+            save_as: Annotated[
+                Any,
+                _param(
+                    _STR,
+                    "Store the full output as a new result named saved_<name> instead of "
+                    "returning it; saving again under the same name replaces it.",
+                    None,
+                ),
+            ] = None,
         ) -> Any:
             meta, payload = self._load(result_id)
             if not isinstance(payload, list):
-                raise _FixableError("This stored result is a text, not a list.",
-                                    f"Use {p}_search or {p}_read on it.")
+                raise _FixableError(
+                    "This stored result is a text, not a list.",
+                    f"Use {p}_search or {p}_read on it.",
+                )
             steps = _steps_arg(steps)
             save_as = None if save_as is None else _str_arg("save_as", save_as)
             try:
                 output = self._engine.execute(payload, steps)
             except PipelineError as exc:
                 extra = {k: v for k, v in exc.context.items() if k != "step"}
-                raise _FixableError(str(exc), "Fix that step; the tool description shows the "
-                                    "syntax.", **extra) from None
+                raise _FixableError(
+                    str(exc),
+                    "Fix that step; the tool description shows the syntax.",
+                    **extra,
+                ) from None
             if save_as is not None:
                 return self._save(meta.workspace_type, result_id, output, save_as)
             if not isinstance(output, list):
                 return {"result_id": result_id, "result": output}
             return self._rows(result_id, payload, steps, output)
 
-        return self._tool(query, f"{p}_query", (
-            f"Filter, sort, group or count a stored list in one call.{_STORED} Only the output "
-            f"comes back (at most {MAX_ITEMS} rows, each with its index when it is an "
-            "item of the list). Dot paths ('author.name') address nested fields.\n"
-            "Steps:\n"
-            '  {"filter": {"state": "open", "score": {"$gte": 3}}}  operators: $gt $gte $lt '
-            f"$lte $ne $in $nin $contains $startswith $exists{regex}; $or/$and/$not\n"
-            '  {"search": {"query": "words"}}   {"sort": {"field": "score", "order": "desc"}}\n'
-            '  {"select": ["title", "score"]}   {"exclude": ["body"]}   {"limit": 10}   '
-            '{"skip": 10}   {"slice": [10, 20]}   {"unique": "author"}   {"flatten": "tags"}   '
-            '{"sample": 5}\n'
-            '  {"group_by": {"field": "state", "metrics": {"n": "count", "avg": "mean:score"}}}'
-            "  metrics: count sum: mean: min: max: median: stddev: values:\n"
-            '  {"count": true}'
-        ), size_hint="Ask for less: add a select step with fewer fields, or a limit step.")
+        return self._tool(
+            query,
+            f"{p}_query",
+            (
+                f"Filter, sort, group or count a stored list in one call.{_STORED} Only the output "
+                f"comes back (at most {MAX_ITEMS} rows, each with its index when it is an "
+                "item of the list). Dot paths ('author.name') address nested fields.\n"
+                "Steps:\n"
+                '  {"filter": {"state": "open", "score": {"$gte": 3}}}  operators: $gt $gte $lt '
+                f"$lte $ne $in $nin $contains $startswith $exists{regex}; $or/$and/$not\n"
+                '  {"search": {"query": "words"}}   {"sort": {"field": "score", "order": "desc"}}\n'
+                '  {"select": ["title", "score"]}   {"exclude": ["body"]}   {"limit": 10}   '
+                '{"skip": 10}   {"slice": [10, 20]}   {"unique": "author"}   {"flatten": "tags"}   '
+                '{"sample": 5}\n'
+                '  {"group_by": {"field": "state", "metrics": {"n": "count", "avg": "mean:score"}}}'
+                "  metrics: count sum: mean: min: max: median: stddev: values:\n"
+                '  {"count": true}'
+            ),
+            size_hint="Ask for less: add a select step with fewer fields, or a limit step.",
+        )
 
     def _rows(
-        self, result_id: str, payload: list[Any], steps: list[dict[str, Any]], output: list[Any]
+        self,
+        result_id: str,
+        payload: list[Any],
+        steps: list[dict[str, Any]],
+        output: list[Any],
     ) -> dict[str, Any]:
         """Query output: rows with their source index when known, within budget."""
         indices = _source_indices(self._engine, payload, steps, output)
@@ -733,12 +891,21 @@ class Offload(ToolInjectionMiddleware):
             if index is None:
                 rows.append(cut_strings(row, LIST_STRING_CHARS))
             else:
-                rows.append({"index": index, "row": self._shape(index, row, None, LIST_STRING_CHARS)})
-        response: dict[str, Any] = {"result_id": result_id, "total": len(output),
-                                    "returned": len(rows), "rows": rows}
+                rows.append(
+                    {
+                        "index": index,
+                        "row": self._shape(index, row, None, LIST_STRING_CHARS),
+                    }
+                )
+        response: dict[str, Any] = {
+            "result_id": result_id,
+            "total": len(output),
+            "returned": len(rows),
+            "rows": rows,
+        }
         # Fit the response into the output budget by showing fewer rows.
         while len(rows) > 1 and _json_len(response) > self.max_output_chars:
-            del rows[max(1, len(rows) * 3 // 4):]
+            del rows[max(1, len(rows) * 3 // 4) :]
             response["returned"] = len(rows)
         if len(rows) < len(output):
             response["note"] = (
@@ -767,12 +934,17 @@ class Offload(ToolInjectionMiddleware):
                 response["note"] = "Only the most recent stored results are listed."
             return response
 
-        return self._tool(list_results, f"{self.prefix}_list", (
-            "List the stored results of this conversation, newest first: large tool "
-            "results kept out of the conversation, with the tool and arguments that "
-            "produced them. Use it to find a result_id again, e.g. after the "
-            "conversation was summarized."
-        ), size_hint="Use a result_id from a recent notice.")
+        return self._tool(
+            list_results,
+            f"{self.prefix}_list",
+            (
+                "List the stored results of this conversation, newest first: large tool "
+                "results kept out of the conversation, with the tool and arguments that "
+                "produced them. Use it to find a result_id again, e.g. after the "
+                "conversation was summarized."
+            ),
+            size_hint="Use a result_id from a recent notice.",
+        )
 
     # ── helpers ───────────────────────────────────────────────────────────
 
@@ -793,7 +965,11 @@ class Offload(ToolInjectionMiddleware):
 
     def _load(self, result_id: Any) -> tuple[Any, Any]:
         store = self.ctx.store
-        meta = store.get_meta(result_id) if isinstance(result_id, str) and result_id else None
+        meta = (
+            store.get_meta(result_id)
+            if isinstance(result_id, str) and result_id
+            else None
+        )
         if meta is None or not is_visible(meta) or self._idle(meta):
             if meta is not None and is_visible(meta):
                 store.drop_workspace(result_id)
@@ -827,7 +1003,11 @@ class Offload(ToolInjectionMiddleware):
         return payload
 
     def _shape(
-        self, index: int, item: Any, fields: Sequence[str] | None, limit: int,
+        self,
+        index: int,
+        item: Any,
+        fields: Sequence[str] | None,
+        limit: int,
         max_items: int = 20,
     ) -> Any:
         if fields and isinstance(item, dict):
@@ -843,15 +1023,23 @@ class Offload(ToolInjectionMiddleware):
             where = f", field='{path}'" if path else ""
             return f"{length:,} {unit}; read it with {p}_read(result_id, index={index}{where})"
 
-        return cut_strings(item, limit, pointer if "read" in self.tools else None, "", max_items)
+        return cut_strings(
+            item, limit, pointer if "read" in self.tools else None, "", max_items
+        )
 
-    def _save(self, ws_type: str, source: str, output: Any, name: str) -> dict[str, Any]:
+    def _save(
+        self, ws_type: str, source: str, output: Any, name: str
+    ) -> dict[str, Any]:
         if not isinstance(output, list):
-            raise _FixableError("Only list outputs can be saved.",
-                                "Drop save_as for count/group results.")
+            raise _FixableError(
+                "Only list outputs can be saved.",
+                "Drop save_as for count/group results.",
+            )
         if not _SAVE_AS_RE.fullmatch(str(name)):
-            raise _FixableError(f"Invalid save_as name {name!r}.",
-                                "Use 1-100 letters, digits, '_', '-' or '.'.")
+            raise _FixableError(
+                f"Invalid save_as name {name!r}.",
+                "Use 1-100 letters, digits, '_', '-' or '.'.",
+            )
         query_tool = f"{self.prefix}_query"
         try:
             ref = self.ctx.store_workspace(
@@ -861,13 +1049,18 @@ class Offload(ToolInjectionMiddleware):
                 producer_fn=query_tool,
                 producer_kwargs={"result_id": source, "save_as": name},
                 meta={"chars": _json_len(output)},
-                replace_if=lambda m: None if m.producer_fn == query_tool
-                else "it is not a saved query result",
+                replace_if=lambda m: (
+                    None
+                    if m.producer_fn == query_tool
+                    else "it is not a saved query result"
+                ),
             )
         except WorkspaceConflictError as exc:
             raise _FixableError(str(exc), "Choose another save_as name.") from None
         self._evict(keep=ref.workspace_id)
-        return self._notice(ref.workspace_id, query_tool, output, _json_len(output), None, saved=True)
+        return self._notice(
+            ref.workspace_id, query_tool, output, _json_len(output), None, saved=True
+        )
 
     @contextlib.contextmanager
     def _scope(self) -> Iterator[None]:
@@ -883,8 +1076,10 @@ class Offload(ToolInjectionMiddleware):
 
 
 #: Said in each tool description: some clients don't show server instructions.
-_STORED = (" A tool result too large to return in full is stored, and the tool returns "
-           "a notice with its result_id instead.")
+_STORED = (
+    " A tool result too large to return in full is stored, and the tool returns "
+    "a notice with its result_id instead."
+)
 _STR: dict[str, Any] = {"type": "string"}
 _INT: dict[str, Any] = {"type": "integer"}
 _FIELDS: dict[str, Any] = {"type": "array", "items": {"type": "string"}}
@@ -905,8 +1100,10 @@ def _param(schema: dict[str, Any], description: str, default: Any = _NO_DEFAULT)
 
 def _str_arg(name: str, value: Any) -> str:
     if not isinstance(value, str) or not value:
-        raise _FixableError(f"{name} must be a non-empty string, not {value!r:.60}.",
-                            f"Pass {name} as a string.")
+        raise _FixableError(
+            f"{name} must be a non-empty string, not {value!r:.60}.",
+            f"Pass {name} as a string.",
+        )
     return value
 
 
@@ -916,8 +1113,10 @@ def _int_arg(name: str, value: Any) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
-        raise _FixableError(f"{name} must be an integer, not {value!r:.60}.",
-                            f"Pass {name} as a whole number.") from None
+        raise _FixableError(
+            f"{name} must be an integer, not {value!r:.60}.",
+            f"Pass {name} as a whole number.",
+        ) from None
 
 
 def _fields_arg(value: Any) -> list[str] | None:
@@ -926,8 +1125,10 @@ def _fields_arg(value: Any) -> list[str] | None:
     if isinstance(value, str):
         value = [value]
     if not isinstance(value, list) or not all(isinstance(v, str) and v for v in value):
-        raise _FixableError("fields must be a list of field names.",
-                            'Pass fields like ["title", "author.name"].')
+        raise _FixableError(
+            "fields must be a list of field names.",
+            'Pass fields like ["title", "author.name"].',
+        )
     return value
 
 
@@ -936,13 +1137,16 @@ def _steps_arg(value: Any) -> list[Any]:
         try:
             value = json.loads(value)
         except ValueError:
-            raise _FixableError("steps is not valid JSON.",
-                                'Pass steps as a list like [{"limit": 10}].') from None
+            raise _FixableError(
+                "steps is not valid JSON.", 'Pass steps as a list like [{"limit": 10}].'
+            ) from None
     if isinstance(value, dict):
         value = [value]
     if not isinstance(value, list):
-        raise _FixableError("steps must be a list of operations.",
-                            'Pass steps as a list like [{"filter": {...}}, {"limit": 10}].')
+        raise _FixableError(
+            "steps must be a list of operations.",
+            'Pass steps as a list like [{"filter": {...}}, {"limit": 10}].',
+        )
     return value
 
 
@@ -958,7 +1162,9 @@ def _principal_scope() -> str | None:
     return f"principal:{principal}" if principal else None
 
 
-def _focus(payload: Any) -> tuple[Any, dict[str, Any] | None, str | None, dict[str, Any] | None]:
+def _focus(
+    payload: Any,
+) -> tuple[Any, dict[str, Any] | None, str | None, dict[str, Any] | None]:
     """
     Pick the part of *payload* worth exploring, as ``(payload, other_fields,
     note, overflow)``: a list or a text stays as it is; an object made mostly of one
@@ -980,9 +1186,13 @@ def _focus(payload: Any) -> tuple[Any, dict[str, Any] | None, str | None, dict[s
             if isinstance(value, str) and preview != rest:
                 # Too much besides the text for a preview: keep it readable
                 # and searchable at the end of the stored text.
-                value = (f"{value}\n\n---\nOther fields of the result:\n"
-                         + json.dumps(rest, ensure_ascii=False, indent=1, default=str))
-                preview = {**preview, "…": "all other fields are at the end of the text"}
+                value = f"{value}\n\n---\nOther fields of the result:\n" + json.dumps(
+                    rest, ensure_ascii=False, indent=1, default=str
+                )
+                preview = {
+                    **preview,
+                    "…": "all other fields are at the end of the text",
+                }
             overflow = rest if isinstance(value, list) and preview != rest else None
             # A lone top-level key needs no explanation.
             if "." in path or rest or note:
@@ -991,7 +1201,12 @@ def _focus(payload: Any) -> tuple[Any, dict[str, Any] | None, str | None, dict[s
         entries = _entries(payload)
         if entries is not None:
             return (*entries, None)
-    return json.dumps(payload, ensure_ascii=False, indent=1, default=str), None, None, None
+    return (
+        json.dumps(payload, ensure_ascii=False, indent=1, default=str),
+        None,
+        None,
+        None,
+    )
 
 
 def _dominant(
@@ -1002,7 +1217,10 @@ def _dominant(
         return None
     total = _json_len(node)
     for key, value in node.items():
-        if not isinstance(value, (list, dict, str)) or _json_len(value) < _DOMINANT_SHARE * total:
+        if (
+            not isinstance(value, (list, dict, str))
+            or _json_len(value) < _DOMINANT_SHARE * total
+        ):
             continue
         rest = {str(k): v for k, v in node.items() if k != key}
         if isinstance(value, (list, str)):
@@ -1042,23 +1260,36 @@ def _entries(obj: dict[str, Any]) -> tuple[list[Any], None, str] | None:
     scalars = sum(not isinstance(v, (dict, list)) for v in values)
     if objects >= 0.9 * len(values):
         used = {f for v in values if isinstance(v, dict) for f in v}
-        key = next((name for name in ("key", "_key", "__key", "entry_key")
-                    if name not in used), "_entry_key_")
-        items = [{**v, key: k} if isinstance(v, dict) else {key: k, "value": v}
-                 for k, v in obj.items()]
+        key = next(
+            (
+                name
+                for name in ("key", "_key", "__key", "entry_key")
+                if name not in used
+            ),
+            "_entry_key_",
+        )
+        items = [
+            {**v, key: k} if isinstance(v, dict) else {key: k, "value": v}
+            for k, v in obj.items()
+        ]
         items = [{key: item.pop(key), **item} for item in items]  # key first
     elif scalars >= 0.9 * len(values):
         key = "key"
         items = [{"key": k, "value": v} for k, v in obj.items()]
     else:
         return None
-    note = (f"The result is an object with {len(obj):,} keys; each item is one entry, "
-            f"its key in {key!r}.")
+    note = (
+        f"The result is an object with {len(obj):,} keys; each item is one entry, "
+        f"its key in {key!r}."
+    )
     return items, None, note
 
 
 def _source_indices(
-    engine: PipelineEngine, payload: list[Any], steps: list[dict[str, Any]], output: list[Any]
+    engine: PipelineEngine,
+    payload: list[Any],
+    steps: list[dict[str, Any]],
+    output: list[Any],
 ) -> list[int | None] | None:
     """
     The position in *payload* of each output row, when rows are items of the
@@ -1070,7 +1301,9 @@ def _source_indices(
     if all(i is not None for i in found):
         return found
     projections = {"select", "exclude"}
-    if not any(next(iter(s), None) in projections for s in steps if isinstance(s, dict)):
+    if not any(
+        next(iter(s), None) in projections for s in steps if isinstance(s, dict)
+    ):
         return None  # rows are new objects (e.g. group_by): no index
     bare = [s for s in steps if next(iter(s), None) not in projections]
     try:
@@ -1093,14 +1326,22 @@ def _example_steps(items: list[Any], fields: Mapping[str, Any]) -> str:
     for name, kind in usable.items():
         if kind != "string":
             continue
-        values = [r[name] for r in rows if isinstance(r.get(name), str) and 0 < len(r[name]) <= 30]
+        values = [
+            r[name]
+            for r in rows
+            if isinstance(r.get(name), str) and 0 < len(r[name]) <= 30
+        ]
         distinct = len(set(values))
-        category_like = len(values) >= max(2, len(rows) // 2) and 1 < distinct <= max(2, len(rows) // 4)
+        category_like = len(values) >= max(2, len(rows) // 2) and 1 < distinct <= max(
+            2, len(rows) // 4
+        )
         if category_like and (best is None or distinct < best[0]):
             best = (distinct, name, values[0])
     if best is not None:
         steps.append({"filter": {best[1]: best[2]}})
-    numeric = [n for n, k in usable.items() if k in ("integer", "number") and not _id_like(n)]
+    numeric = [
+        n for n, k in usable.items() if k in ("integer", "number") and not _id_like(n)
+    ]
     if numeric:
         steps.append({"sort": {"field": numeric[0], "order": "desc"}})
     steps.append({"limit": 10})
@@ -1110,8 +1351,11 @@ def _example_steps(items: list[Any], fields: Mapping[str, Any]) -> str:
 def _id_like(name: str) -> bool:
     """Field names that identify rather than measure (poor sort examples)."""
     lower = name.lower()
-    return lower in ("id", "index", "number", "no", "num", "key", "idx") or \
-        lower.endswith(("_id", "_no", "_num", "_number")) or name.endswith(("Id", "ID"))
+    return (
+        lower in ("id", "index", "number", "no", "num", "key", "idx")
+        or lower.endswith(("_id", "_no", "_num", "_number"))
+        or name.endswith(("Id", "ID"))
+    )
 
 
 # ── text search ───────────────────────────────────────────────────────────
@@ -1128,7 +1372,9 @@ def _passages(text: str, query: str, limit: int) -> dict[str, Any]:
     the passages with the most (and rarest) query words.
     """
     phrase = " ".join(query.split())
-    pattern = re.compile(r"\s+".join(re.escape(w) for w in phrase.split()), re.IGNORECASE)
+    pattern = re.compile(
+        r"\s+".join(re.escape(w) for w in phrase.split()), re.IGNORECASE
+    )
     spans = [(m.start(), m.end()) for m in pattern.finditer(text)]
     if spans:
         groups = _group_spans(spans)
@@ -1136,15 +1382,22 @@ def _passages(text: str, query: str, limit: int) -> dict[str, Any]:
             {**_excerpt(text, start, end), **({"occurrences": n} if n > 1 else {})}
             for start, end, n in groups[:limit]
         ]
-        return {"match": "phrase", "occurrences": len(spans), "returned": len(passages),
-                "has_more": len(groups) > limit, "passages": passages}
+        return {
+            "match": "phrase",
+            "occurrences": len(spans),
+            "returned": len(passages),
+            "has_more": len(groups) > limit,
+            "passages": passages,
+        }
 
     words = sorted({w for w in query_terms(phrase.lower()) if len(w) > 1})
     hits: list[tuple[int, int, str]] = []
     counts: dict[str, int] = {}
     for word in words:
-        found = [(m.start(), m.end(), word)
-                 for m in re.finditer(re.escape(word), text, re.IGNORECASE)]
+        found = [
+            (m.start(), m.end(), word)
+            for m in re.finditer(re.escape(word), text, re.IGNORECASE)
+        ]
         counts[word] = len(found)
         hits.extend(found[:_HITS_PER_WORD])
     if not hits:
@@ -1155,7 +1408,7 @@ def _passages(text: str, query: str, limit: int) -> dict[str, Any]:
     window = 2 * _PASSAGE_CONTEXT
     candidates = []
     for i, (start, _, _) in enumerate(hits):
-        inside = [h for h in hits[i:i + 64] if h[0] - start <= window]
+        inside = [h for h in hits[i : i + 64] if h[0] - start <= window]
         terms = {h[2] for h in inside}
         score = sum(weight[t] for t in terms)
         candidates.append((score, start, max(h[1] for h in inside), terms))
@@ -1166,12 +1419,18 @@ def _passages(text: str, query: str, limit: int) -> dict[str, Any]:
             chosen.append(cand)
         if len(chosen) > limit:
             break
-    passages = [{**_excerpt(text, start, end), "words": sorted(terms)}
-                for _, start, end, terms in chosen[:limit]]
-    return {"match": "words",
-            "note": "The exact phrase does not occur; these passages contain the most "
-                    "(and rarest) query words.",
-            "returned": len(passages), "has_more": len(chosen) > limit, "passages": passages}
+    passages = [
+        {**_excerpt(text, start, end), "words": sorted(terms)}
+        for _, start, end, terms in chosen[:limit]
+    ]
+    return {
+        "match": "words",
+        "note": "The exact phrase does not occur; these passages contain the most "
+        "(and rarest) query words.",
+        "returned": len(passages),
+        "has_more": len(chosen) > limit,
+        "passages": passages,
+    }
 
 
 def _group_spans(spans: list[tuple[int, int]]) -> list[tuple[int, int, int]]:
@@ -1201,13 +1460,20 @@ def _match_passage(item: Any, terms: list[str], shown: int) -> dict[str, Any] | 
     words = [t for t in terms if t]
     if not words:
         return None
-    pattern = re.compile("|".join(re.escape(w) for w in sorted(words, key=len, reverse=True)),
-                         re.IGNORECASE)
-    best: tuple[int, int, str, str] | None = None  # (-distinct words, start, path, value)
+    pattern = re.compile(
+        "|".join(re.escape(w) for w in sorted(words, key=len, reverse=True)),
+        re.IGNORECASE,
+    )
+    best: tuple[int, int, str, str] | None = (
+        None  # (-distinct words, start, path, value)
+    )
     for path, value in _string_leaves(item):
         if len(value) <= shown:
             continue
-        found = [(m.start(), m.group().lower()) for m in itertools.islice(pattern.finditer(value), 200)]
+        found = [
+            (m.start(), m.group().lower())
+            for m in itertools.islice(pattern.finditer(value), 200)
+        ]
         if not found:
             continue
         candidate = (-len({w for _, w in found}), found[0][0], path, value)
@@ -1221,7 +1487,9 @@ def _match_passage(item: Any, terms: list[str], shown: int) -> dict[str, Any] | 
     return {"field": path, "text": passage} if path else {"text": passage}
 
 
-def _string_leaves(value: Any, path: str = "", budget: list[int] | None = None) -> Iterator[tuple[str, str]]:
+def _string_leaves(
+    value: Any, path: str = "", budget: list[int] | None = None
+) -> Iterator[tuple[str, str]]:
     """``(path, string)`` for the strings inside *value* (paths as resolve_path reads them)."""
     budget = budget if budget is not None else [2_000]
     if budget[0] <= 0:
@@ -1270,8 +1538,12 @@ def _outline(text: str) -> list[str] | None:
         previous_page, page = page, offset // PAGE_CHARS
         offset += len(line)
         if fence:
-            if opener and opener.group(1)[0] == fence[0] and len(opener.group(1)) >= len(fence) \
-                    and stripped.strip() == opener.group(1):
+            if (
+                opener
+                and opener.group(1)[0] == fence[0]
+                and len(opener.group(1)) >= len(fence)
+                and stripped.strip() == opener.group(1)
+            ):
                 fence = ""
             continue
         if opener:
@@ -1313,8 +1585,10 @@ def _outline(text: str) -> list[str] | None:
     top = min(level for level, _, _ in entries)
     out = [f"{'  ' * (level - top)}{page}: {title}" for level, title, page in entries]
     if total > _MAX_OUTLINE:
-        out.append(f"… {total:,} headings in all, about every {total / (_MAX_OUTLINE - 1):.0f}"
-                   "th shown; search finds the others")
+        out.append(
+            f"… {total:,} headings in all, about every {total / (_MAX_OUTLINE - 1):.0f}"
+            "th shown; search finds the others"
+        )
     return out
 
 
@@ -1324,8 +1598,13 @@ def _underlined_title(lines: list[str], n: int) -> bool:
         return False
     title = lines[n - 1].rstrip("\r\n")
     before = lines[n - 2].strip() if n >= 2 else ""
-    return bool(title.strip()) and not before and not _NOT_TITLE.match(title) \
-        and not _FENCE.match(title) and not _UNDERLINE.match(title)
+    return (
+        bool(title.strip())
+        and not before
+        and not _NOT_TITLE.match(title)
+        and not _FENCE.match(title)
+        and not _UNDERLINE.match(title)
+    )
 
 
 def _in_comment_block(lines: list[str], n: int, hashes: str) -> bool:
@@ -1333,6 +1612,7 @@ def _in_comment_block(lines: list[str], n: int, hashes: str) -> bool:
     A ``#`` line in a run of three or more like it is a comment block (YAML,
     shell, Python), not headings.
     """
+
     def like(m: int) -> bool:
         return 0 <= m < len(lines) and lines[m].lstrip(" ").startswith(hashes + " ")
 
@@ -1344,11 +1624,17 @@ def _in_comment_block(lines: list[str], n: int, hashes: str) -> bool:
 def _text_page(text: str, page: int) -> dict[str, Any]:
     pages = max(1, math.ceil(len(text) / PAGE_CHARS))
     if page >= pages:
-        raise _FixableError(f"Page {page} is past the end ({pages} pages).",
-                            f"Use a page from 0 to {pages - 1}.")
+        raise _FixableError(
+            f"Page {page} is past the end ({pages} pages).",
+            f"Use a page from 0 to {pages - 1}.",
+        )
     start = page * PAGE_CHARS
-    return {"page": page, "pages": pages, "has_more": page + 1 < pages,
-            "text": text[start:start + PAGE_CHARS]}
+    return {
+        "page": page,
+        "pages": pages,
+        "has_more": page + 1 < pages,
+        "text": text[start : start + PAGE_CHARS],
+    }
 
 
 # ── small helpers ─────────────────────────────────────────────────────────
@@ -1382,7 +1668,9 @@ def _parse_parts(parts: list[tuple[str, str | None]]) -> Any:
             if all(isinstance(v, list) for v in values):
                 return [item for value in values for item in value]
             sizes = [_json_len(v) for v in values]
-            if all(isinstance(v, dict) for v in values) and max(sizes) <= 0.5 * sum(sizes):
+            if all(isinstance(v, dict) for v in values) and max(sizes) <= 0.5 * sum(
+                sizes
+            ):
                 return values
             if max(sizes) >= _DOMINANT_SHARE * sum(sizes):
                 return values[sizes.index(max(sizes))]
@@ -1406,8 +1694,10 @@ def _trim(text: str, limit: int, what: str = "the error") -> str:
     if len(text) <= limit:
         return text
     keep = max((limit - 80) // 2, 50)
-    trimmed = (f"{text[:keep]}\n… [{len(text) - 2 * keep:,} characters of {what} "
-               f"omitted] …\n{text[-keep:]}")
+    trimmed = (
+        f"{text[:keep]}\n… [{len(text) - 2 * keep:,} characters of {what} "
+        f"omitted] …\n{text[-keep:]}"
+    )
     return trimmed if len(trimmed) < len(text) else text
 
 
