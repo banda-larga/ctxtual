@@ -1,7 +1,7 @@
 # Release: push a tag vX.Y.Z (matching pyproject.toml and CHANGELOG.md) and
 # this workflow tests, builds, publishes to PyPI and creates the GitHub
 # Release.  PyPI publishing uses Trusted Publishing (OIDC): no token is
-# stored anywhere.  One-time setup: see "Releasing" in README.md.
+# stored anywhere.
 name: Release
 
 on:

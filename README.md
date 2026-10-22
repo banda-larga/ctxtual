@@ -649,24 +649,6 @@ with the result inline, truncated, and through ctxtual.
 Contributions are welcome; please open an issue before large changes.
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
-### Releasing
-
-1. Bump `version` in `pyproject.toml` and `__version__` in
-   `src/ctxtual/__init__.py`, and add a `## X.Y.Z` section to `CHANGELOG.md`
-   (a test checks that the three agree).
-2. Commit, then tag and push: `git tag -a vX.Y.Z -m "ctxtual X.Y.Z" && git push origin vX.Y.Z`.
-
-The [release workflow](.github/workflows/release.yml) runs the tests, checks
-the tag against the version, builds, publishes to PyPI with Trusted
-Publishing (no token) and creates the GitHub Release with the changelog
-section as notes.
-
-One-time setup: on PyPI, *ctxtual → Settings → Publishing → Add a new
-publisher → GitHub*, with owner `banda-larga`, repository `ctxtual`,
-workflow `release.yml`, environment `pypi`. Optionally, in GitHub *Settings
-→ Environments → pypi*, add yourself as a required reviewer so every publish
-waits for your approval.
-
 ## License
 
 MIT
