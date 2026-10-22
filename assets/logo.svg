@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="726" height="230" viewBox="-4 15 726 230" role="img" aria-label="ctxtual">
   <title>ctxtual</title>
   <path d="M152 60 A86 86 0 1 0 152 196" fill="none" stroke="#2563eb" stroke-width="26" stroke-linecap="round"/>
-  <circle cx="104" cy="128" r="20" fill="#0f172a"/>
+  <circle cx="99.35" cy="128" r="20" fill="#0f172a"/>
   <rect x="150" y="98" width="92" height="14" rx="7" fill="#93c5fd"/>
   <rect x="150" y="121" width="74" height="14" rx="7" fill="#bfdbfe"/>
   <rect x="150" y="144" width="56" height="14" rx="7" fill="#dbeafe"/>
