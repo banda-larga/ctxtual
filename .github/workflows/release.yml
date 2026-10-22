@@ -20,11 +20,11 @@ jobs:
         python-version: ["3.11", "3.13"]
         extras: ["core", "mcp"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v10.3.0
       - name: Install dependencies
         run: uv sync --extra dev ${{ matrix.extras == 'mcp' && '--extra mcp' || '' }}
       - run: uv run ruff check src/ tests/
@@ -33,11 +33,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v10.3.0
       - name: Tag matches the package version and the changelog
         run: python scripts/release_check.py version "${GITHUB_REF_NAME}"
       - name: Build
@@ -46,7 +46,7 @@ jobs:
         run: |
           uvx --isolated --from "$(ls dist/*.whl)" ctxtual --version
           uvx --isolated --from "$(ls dist/*.whl)[mcp]" ctxtual --version
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -61,7 +61,7 @@ jobs:
     permissions:
       id-token: write  # Trusted Publishing
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist/
@@ -73,8 +73,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
         with:
           name: dist
           path: dist/
