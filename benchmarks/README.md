@@ -60,8 +60,9 @@ tool calls, prompt and completion tokens, cached tokens, cost in dollars as
 OpenRouter reports it, the largest tool result, seconds, error), and a
 summary table is written next to it.
 
-Cost: one medium run of all tasks and conditions sends roughly 1–2 million
-prompt tokens per model, most of it in the inline condition. The large
+Cost: one medium run of all tasks and conditions sends roughly 0.5–1 million
+prompt tokens per model (most of it in the inline condition, which re-sends
+the ~30k-token result on every turn); prompt caching lowers what that costs. The large
 inline condition usually fails with a context-length error, which is
 recorded as an error, not retried.
 
