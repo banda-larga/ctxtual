@@ -9,7 +9,8 @@ notice** instead:
 - for lists: `fields` (name → type), a 3-item `preview`, and a query example
   built from the result's real fields
 - for markdown texts: an `outline` of the headings with the page each starts
-  on; for source code, of its definitions (`def`, `class`, `function`, …)
+  on (`#` and underlined `===`/`---` headings); for source code, of its
+  definitions (`def`, `class`, `function`, …)
 - `how_to_explore`: which tool to call next
 
 and four read-only tools that work on stored results:
@@ -33,7 +34,9 @@ What gets stored is the part of the result worth exploring:
 - Objects that wrap the data, like `{"data": {"items": [...]}, "meta": {...}}`,
   are unpacked to the list; objects made of one long text, like
   `{"url": …, "markdown": "…"}`, to the text (with its outline). The other
-  fields are shown in the notice under `other_fields`.
+  fields are shown in the notice under `other_fields`. When they are too
+  long for the notice, they are stored as a second result, whose `result_id`
+  the notice gives.
 - Objects keyed by name or id (`{"pkg-a": {...}, "pkg-b": {...}}`, or a map
   of counts) become a list of entries with the key in `key`, so they can be
   searched, sorted and counted.
@@ -169,8 +172,9 @@ under it. Results are dropped after `--ttl` seconds without use, and beyond
 `--max-results` (or 100 million characters in total) the least recently used
 go first. These limits apply per user when the server uses authentication,
 and the result just stored is always kept. With `--store`, the SQLite file is
-created readable only by you; every exploration call reads the whole stored
-result from it, so keep the memory store for very large results.
+created readable only by you. Results read from it are kept in memory (up to
+100 million characters, least recently used first), so only the first call
+on a result reads it from disk.
 
 If the wrapped server has a tool with the same name as one of ctxtual's
 (say `result_list`), ctxtual's tools are renamed to `ctxtual_result_*`

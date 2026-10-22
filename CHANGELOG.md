@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- When a list's other fields (`{"items": [...], "facets": {...}}`) were too
+  long for the notice, the cut part could not be reached; it is now stored as
+  a second result, whose `result_id` the notice gives.
+- With a SQLite store, every exploration call read the whole result from
+  disk (0.2 s for 100,000 rows); results read are now kept in memory, by id
+  and creation time, up to 100 million characters.
+- Outlines include underlined headings (`Title` over `=====` or `-----`).
+- CI and release workflows use actions on the Node 24 runtime.
+
 ## 0.5.0
 
 Result shapes real servers produce, and defaults tuned for clients that cache

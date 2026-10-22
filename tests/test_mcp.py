@@ -567,6 +567,14 @@ class TestRedesignReview:
         assert _outline(code) == [f"0: def f{i}(x)" for i in range(5)] + [
             "0: class K", "  0: def m(self)"]
 
+    def test_underlined_headings(self):
+        from ctxtual.mcp.offload import _outline
+
+        doc = ("Project\n=======\n\nintro\n\nInstall\n-------\n\ntext\n\nUsage\n-----\n\n"
+               "- item\n---\n\npara one\npara two\n---\n")
+        assert _outline(doc) == ["0: Project", "  0: Install", "  0: Usage"]
+        assert _outline("---\ntitle: x\n---\n# A\n\n# B\n\n# C\n") == ["0: A", "0: B", "0: C"]
+
     def test_examples_skip_dotted_field_names(self):
         from ctxtual.mcp.offload import _example_steps
 
@@ -935,6 +943,46 @@ class TestRealWorldShapes:
         started = time.perf_counter()
         assert parse_text_payload(cut_json) == cut_json
         assert time.perf_counter() - started < 0.5
+
+    async def test_cut_other_fields_of_a_list_are_stored_too(self):
+        def search() -> dict:
+            return {"items": [{"id": i, "pad": "p" * 200} for i in range(500)],
+                    "facets": {"authors": [f"author {i}" for i in range(100)],
+                               "note": "n" * 3000 + " HIDDEN"}}
+
+        async with Client(self._mcp(search, max_results=1)) as c:
+            notice = json.loads(text(await c.call_tool("search", {})))
+            pointer = notice["other_fields"]["…"]
+            rest_id = re.search(r"'([^']+)'", pointer).group(1)
+            found = json.loads(text(await c.call_tool(
+                "result_search", {"result_id": rest_id, "query": "HIDDEN"})))
+            assert found["returned"] == 1
+            # both survive eviction (max_results=1), the list included
+            assert not (await c.call_tool(
+                "result_read", {"result_id": notice["result_id"]})).is_error
+
+    async def test_disk_store_reads_are_cached_and_fresh(self, tmp_path):
+        from ctxtual.store.sqlite import SQLiteStore
+
+        def rows() -> list[dict]:
+            return [{"id": i, "kind": ["a", "b"][i % 2], "pad": "x" * 100} for i in range(300)]
+
+        offload = Offload(threshold=8_000, store=SQLiteStore(str(tmp_path / "r.db")))
+        mcp = FastMCP("t")
+        mcp.tool(rows)
+        mcp.add_middleware(offload)
+        async with Client(mcp) as c:
+            rid = json.loads(text(await c.call_tool("rows", {})))["result_id"]
+            for kind, n in (("a", 150), ("b", 150)):
+                await c.call_tool("result_query", {"result_id": rid, "save_as": "k",
+                                                   "steps": [{"filter": {"kind": kind}}]})
+                got = json.loads(text(await c.call_tool(
+                    "result_query", {"result_id": "saved_k", "steps": [{"count": True}]})))
+                assert got["result"] == {"count": n}
+                first = json.loads(text(await c.call_tool(
+                    "result_read", {"result_id": "saved_k", "index": 0})))
+                assert first["item"]["kind"] == kind  # the replaced result, not a stale copy
+            assert offload._cache  # repeated reads come from memory
 
     async def test_default_threshold_leaves_medium_results_inline(self):
         def medium() -> str:

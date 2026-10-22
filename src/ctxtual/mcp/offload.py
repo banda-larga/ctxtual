@@ -36,6 +36,7 @@ import logging
 import math
 import re
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from typing import Annotated, Any
 
@@ -78,6 +79,8 @@ HIT_STRING_CHARS = 160
 ITEM_STRING_CHARS = 4_000
 #: Most items, rows or passages one call returns.
 MAX_ITEMS = 50
+#: Characters of stored results kept loaded, for stores that read from disk.
+CACHE_CHARS = 100_000_000
 #: The tools Offload can inject (``tools=`` picks a subset).
 TOOLS = ("search", "read", "query", "list")
 _SAVE_AS_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}")
@@ -177,6 +180,10 @@ class Offload(ToolInjectionMiddleware):
         self._upstream_tool_names = upstream_tool_names
         self._clash_checked = upstream_tool_names is None
         self._clash_lock = asyncio.Lock()
+        # Stored results never change (a replaced saved_ result has a new
+        # created_at), so a disk store's reads can be cached by (id, created_at).
+        self._cache: OrderedDict[tuple[str, float], tuple[int, Any]] = OrderedDict()
+        self._cache_chars = 0
         super().__init__(tools=self._build_tools(prefix))
 
     # ── which tools are offloaded ─────────────────────────────────────────
@@ -326,7 +333,7 @@ class Offload(ToolInjectionMiddleware):
             filled = [uri for t, uri in parts if t.strip()]
             if len(filled) == 1 and filled[0]:
                 extra["uri"] = filled[0]
-        payload, other_fields, shape = _focus(payload)
+        payload, other_fields, shape, overflow = _focus(payload)
         if shape:
             extra["note"] = shape
         if not isinstance(payload, list):
@@ -343,7 +350,22 @@ class Offload(ToolInjectionMiddleware):
                 producer_kwargs=arguments,
                 meta={"chars": chars},
             )
-            self._evict(keep=ref.workspace_id)
+            kept_ids = {ref.workspace_id}
+            if overflow is not None and other_fields is not None:
+                # The list's other fields didn't fit the preview: store them
+                # too, so nothing of the result is out of reach.
+                rest_text = json.dumps(overflow, ensure_ascii=False, indent=1, default=str)
+                rest_ref = self.ctx.store_workspace(
+                    rest_text,
+                    workspace_type=name,
+                    producer_fn=name,
+                    producer_kwargs={**arguments, "part": "other fields"},
+                    meta={"chars": len(rest_text)},
+                )
+                kept_ids.add(rest_ref.workspace_id)
+                other_fields["…"] = (f"cut here; all other fields are stored as result_id "
+                                     f"{rest_ref.workspace_id!r}")
+            self._evict(keep=kept_ids)
         notice = self._notice(
             ref.workspace_id, name, payload, size, other_fields,
             has_arguments=bool(arguments), extra=extra,
@@ -354,13 +376,14 @@ class Offload(ToolInjectionMiddleware):
             meta=result.meta,
         )
 
-    def _evict(self, keep: str | None = None) -> None:
+    def _evict(self, keep: str | set[str] | None = None) -> None:
         """
         Drop results idle for longer than ``ttl``, then the least recently
         used ones beyond the count and size caps.  Caps apply per session
         scope (per user), so one user's results never push out another's;
-        the result *keep* (just stored) is never dropped.
+        the results in *keep* (just stored) are never dropped.
         """
+        keep = {keep} if isinstance(keep, str) else set(keep or ())
         store = self.ctx.store
         now = time.time()
         groups: dict[Any, list[Any]] = {}
@@ -368,14 +391,15 @@ class Offload(ToolInjectionMiddleware):
             meta = store.get_meta(ws_id)
             if meta is None:
                 continue
-            if self.ttl is not None and now - meta.last_accessed_at > self.ttl and ws_id != keep:
+            if self.ttl is not None and now - meta.last_accessed_at > self.ttl and ws_id not in keep:
                 store.drop_workspace(ws_id)
             else:
                 groups.setdefault(meta.session_id, []).append(meta)
         for metas in groups.values():
-            metas.sort(key=lambda m: (m.workspace_id == keep, m.last_accessed_at))
+            metas.sort(key=lambda m: (m.workspace_id in keep, m.last_accessed_at))
             total = sum(int(m.extra.get("chars", 0)) for m in metas)
-            while len(metas) > 1 and (len(metas) > self.max_results or total > self.max_total_chars):
+            while (metas and metas[0].workspace_id not in keep
+                   and (len(metas) > self.max_results or total > self.max_total_chars)):
                 oldest = metas.pop(0)
                 total -= int(oldest.extra.get("chars", 0))
                 store.drop_workspace(oldest.workspace_id)
@@ -781,7 +805,26 @@ class Offload(ToolInjectionMiddleware):
                 **({"stored_results": known} if known else {}),
             )
         store.touch(result_id)
-        return meta, store.get_items(result_id)
+        return meta, self._items(meta)
+
+    def _items(self, meta: Any) -> Any:
+        """The stored payload; a disk store's reads are kept in a small LRU cache."""
+        store = self.ctx.store
+        if isinstance(store, MemoryStore):
+            return store.get_items(meta.workspace_id)
+        key = (meta.workspace_id, meta.created_at)
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key][1]
+        payload = store.get_items(meta.workspace_id)
+        chars = int(meta.extra.get("chars", 0))
+        if chars <= CACHE_CHARS:
+            self._cache[key] = (chars, payload)
+            self._cache_chars += chars
+            while self._cache_chars > CACHE_CHARS and len(self._cache) > 1:
+                _, (dropped, _) = self._cache.popitem(last=False)
+                self._cache_chars -= dropped
+        return payload
 
     def _shape(
         self, index: int, item: Any, fields: Sequence[str] | None, limit: int,
@@ -915,18 +958,19 @@ def _principal_scope() -> str | None:
     return f"principal:{principal}" if principal else None
 
 
-def _focus(payload: Any) -> tuple[Any, dict[str, Any] | None, str | None]:
+def _focus(payload: Any) -> tuple[Any, dict[str, Any] | None, str | None, dict[str, Any] | None]:
     """
     Pick the part of *payload* worth exploring, as ``(payload, other_fields,
-    note)``: a list or a text stays as it is; an object made mostly of one
+    note, overflow)``: a list or a text stays as it is; an object made mostly of one
     list or one text (also nested, as in ``{"data": {"items": [...]}}`` or
     ``{"url": ..., "markdown": "..."}``) yields that value plus a preview of
     the other fields; an object with many keys of the same kind (``{"pkg-a":
     {...}, "pkg-b": {...}}``) becomes a list of its entries; anything else
-    becomes readable text.
+    becomes readable text.  *overflow* holds a list's other fields when the
+    preview had to cut them (they are stored next to the list).
     """
     if isinstance(payload, (list, str)):
-        return payload, None, None
+        return payload, None, None, None
     if isinstance(payload, dict) and payload:
         found = _dominant(payload)
         if found is not None:
@@ -939,14 +983,15 @@ def _focus(payload: Any) -> tuple[Any, dict[str, Any] | None, str | None]:
                 value = (f"{value}\n\n---\nOther fields of the result:\n"
                          + json.dumps(rest, ensure_ascii=False, indent=1, default=str))
                 preview = {**preview, "…": "all other fields are at the end of the text"}
+            overflow = rest if isinstance(value, list) and preview != rest else None
             # A lone top-level key needs no explanation.
             if "." in path or rest or note:
-                return value, {kind: path, **preview}, note
-            return value, None, None
+                return value, {kind: path, **preview}, note, overflow
+            return value, None, None, None
         entries = _entries(payload)
         if entries is not None:
-            return entries
-    return json.dumps(payload, ensure_ascii=False, indent=1, default=str), None, None
+            return (*entries, None)
+    return json.dumps(payload, ensure_ascii=False, indent=1, default=str), None, None, None
 
 
 def _dominant(
@@ -1196,6 +1241,10 @@ def _string_leaves(value: Any, path: str = "", budget: list[int] | None = None) 
 
 _HEADING = re.compile(r"^ {0,3}(#{1,3})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+#: The underline of a "Title\n=====" (level 1) or "Title\n-----" (level 2) heading.
+_UNDERLINE = re.compile(r"^ {0,3}(=+|-{3,})[ \t]*$")
+#: Lines that can't be the title of an underlined heading (lists, quotes, tables…).
+_NOT_TITLE = re.compile(r"^(?: {4}|\t|\s*(?:[-*+>|#]|\d+[.)])(?:\s|$))")
 #: A definition in source code: top level, or one indent in (methods).
 _DEFINITION = re.compile(
     r"^( {0,4}|\t?)(?:export\s+)?(?:default\s+)?(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?"
@@ -1214,11 +1263,11 @@ def _outline(text: str) -> list[str] | None:
     lines = text.splitlines(keepends=True)
     headings: list[tuple[int, str, int]] = []
     definitions: list[tuple[int, str, int]] = []
-    offset, fence = 0, ""
+    offset, fence, page = 0, "", 0
     for n, line in enumerate(lines):
         stripped = line.rstrip("\r\n")
         opener = _FENCE.match(stripped)
-        page = offset // PAGE_CHARS
+        previous_page, page = page, offset // PAGE_CHARS
         offset += len(line)
         if fence:
             if opener and opener.group(1)[0] == fence[0] and len(opener.group(1)) >= len(fence) \
@@ -1227,6 +1276,11 @@ def _outline(text: str) -> list[str] | None:
             continue
         if opener:
             fence = opener.group(1)
+            continue
+        underline = _UNDERLINE.match(stripped)
+        if underline and _underlined_title(lines, n):
+            level = 1 if underline.group(1)[0] == "=" else 2
+            headings.append((level, lines[n - 1].strip()[:100], previous_page))
             continue
         match = _HEADING.match(stripped)
         if match and not _in_comment_block(lines, n, match.group(1)):
@@ -1258,6 +1312,16 @@ def _outline(text: str) -> list[str] | None:
     if more > 0:
         out.append(f"… {more + 1} more")
     return out
+
+
+def _underlined_title(lines: list[str], n: int) -> bool:
+    """Whether line *n* underlines a one-line paragraph (a setext heading)."""
+    if n == 0:
+        return False
+    title = lines[n - 1].rstrip("\r\n")
+    before = lines[n - 2].strip() if n >= 2 else ""
+    return bool(title.strip()) and not before and not _NOT_TITLE.match(title) \
+        and not _FENCE.match(title) and not _UNDERLINE.match(title)
 
 
 def _in_comment_block(lines: list[str], n: int, hashes: str) -> bool:
