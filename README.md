@@ -1,4 +1,9 @@
-# ctxtual
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/banda-larga/ctxtual/main/assets/logo-dark.svg">
+    <img alt="ctxtual" src="https://raw.githubusercontent.com/banda-larga/ctxtual/main/assets/logo.svg" width="380">
+  </picture>
+</p>
 
 [![PyPI version](https://img.shields.io/pypi/v/ctxtual.svg)](https://pypi.org/project/ctxtual/)
 [![Python 3.11+](https://img.shields.io/pypi/pyversions/ctxtual.svg)](https://pypi.org/project/ctxtual/)
@@ -13,13 +18,13 @@ gives the model a short notice — a preview, the fields, the size — plus tool
 to search, filter, aggregate and page through the stored data. Small results
 pass through untouched.
 
-[![Benchmark results](benchmarks/results.svg)](benchmarks/RESULTS.md)
+[![Benchmark results](https://raw.githubusercontent.com/banda-larga/ctxtual/main/benchmarks/results.svg)](https://github.com/banda-larga/ctxtual/blob/main/benchmarks/RESULTS.md)
 
 Across five models, questions about large tool results were answered
 correctly every time through ctxtual, at about 8,000 prompt tokens each
 whether the result held 30k or 300k tokens. With the whole 300k-token result
 in context, models were right 39% of the time; with it truncated, 17%.
-[Full results and method →](benchmarks/RESULTS.md)
+[Full results and method →](https://github.com/banda-larga/ctxtual/blob/main/benchmarks/RESULTS.md)
 
 It works two ways:
 
