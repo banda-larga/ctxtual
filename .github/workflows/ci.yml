@@ -37,7 +37,7 @@ jobs:
         run: uv sync --extra dev --extra mcp
 
       - name: Lint
-        run: uv run ruff check src/ tests/
+        run: uv run ruff check src/ tests/ benchmarks/
 
       - name: Run tests
         run: uv run pytest --tb=short -q -W error::DeprecationWarning

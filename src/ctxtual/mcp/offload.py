@@ -1304,13 +1304,17 @@ def _outline(text: str) -> list[str] | None:
         if len(shallower) <= 1:
             break
         entries = shallower
-    more = len(entries) - _MAX_OUTLINE
-    if more > 0:
-        entries = entries[:_MAX_OUTLINE - 1]
+    total = len(entries)
+    if total > _MAX_OUTLINE:
+        # Still too many at one level: an even sample, so the outline spans
+        # the whole text rather than its beginning.
+        step = (total - 1) / (_MAX_OUTLINE - 2)
+        entries = [entries[round(i * step)] for i in range(_MAX_OUTLINE - 1)]
     top = min(level for level, _, _ in entries)
     out = [f"{'  ' * (level - top)}{page}: {title}" for level, title, page in entries]
-    if more > 0:
-        out.append(f"… {more + 1} more")
+    if total > _MAX_OUTLINE:
+        out.append(f"… {total:,} headings in all, about every {total / (_MAX_OUTLINE - 1):.0f}"
+                   "th shown; search finds the others")
     return out
 
 

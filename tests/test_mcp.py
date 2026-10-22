@@ -575,6 +575,14 @@ class TestRedesignReview:
         assert _outline(doc) == ["0: Project", "  0: Install", "  0: Usage"]
         assert _outline("---\ntitle: x\n---\n# A\n\n# B\n\n# C\n") == ["0: A", "0: B", "0: C"]
 
+    def test_long_outline_spans_the_whole_text(self):
+        from ctxtual.mcp.offload import _outline
+
+        doc = "# Manual\n\n" + "".join(f"## Part {i}\n\n{'text ' * 400}\n\n" for i in range(300))
+        out = _outline(doc)
+        assert len(out) == 50 and out[0] == "0: Manual"
+        assert out[-2].endswith("Part 299") and "301 headings in all" in out[-1]
+
     def test_examples_skip_dotted_field_names(self):
         from ctxtual.mcp.offload import _example_steps
 

@@ -11,6 +11,13 @@
   disk (0.2 s for 100,000 rows); results read are now kept in memory, by id
   and creation time, up to 100 million characters.
 - Outlines include underlined headings (`Title` over `=====` or `-----`).
+- Outlines of documents with many sections of one level showed only the
+  first 49; they now sample the sections evenly across the whole text.
+
+### Added
+
+- `benchmarks/`: measures ctxtual with real models through OpenRouter (six
+  tasks over large results; inline, truncated and ctxtual conditions).
 - CI and release workflows use actions on the Node 24 runtime.
 
 ## 0.5.0

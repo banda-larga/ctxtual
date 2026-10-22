@@ -594,8 +594,12 @@ git clone https://github.com/banda-larga/ctxtual.git
 cd ctxtual
 uv sync --extra dev --extra mcp
 uv run pytest
-uv run ruff check src/ tests/
+uv run ruff check src/ tests/ benchmarks/
 ```
+
+[`benchmarks/`](benchmarks/README.md) measures ctxtual with real models
+through OpenRouter: six questions about large tool results, each answered
+with the result inline, truncated, and through ctxtual.
 
 Contributions are welcome; please open an issue before large changes.
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
