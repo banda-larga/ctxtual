@@ -14,6 +14,17 @@
 - Outlines of documents with many sections of one level showed only the
   first 49; they now sample the sections evenly across the whole text.
 
+- The result tools accept the ways small models actually call them (seen
+  in the benchmark with a 2.6B model): common argument aliases (`id`,
+  `limit`, `q`, `idx`…), operations passed next to `steps` (`filter=…,
+  limit=…`), steps written as `{"operation": "filter", "params": {...}}` or
+  with several operations in one, and `fields` on `result_query`. Unknown
+  arguments get a fixable error listing the valid ones instead of a raw
+  validation error.
+- Pipeline filters on list fields follow MongoDB: `{"labels": "bug"}`
+  matches items whose `labels` contain `"bug"`, a list matches when all its
+  values are contained, and `$ne`/`$in`/`$nin` test the elements.
+
 ### Added
 
 - `benchmarks/`: measures ctxtual with real models through OpenRouter (six

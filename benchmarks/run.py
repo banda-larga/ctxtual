@@ -127,7 +127,10 @@ class OpenRouter:
                     data = json.load(response)
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode(errors="replace")[:500]
-                if exc.code in (429, 502, 503) and attempt < attempts - 1:
+                transient = exc.code in (429, 502, 503, 504) or (
+                    exc.code == 400 and "Provider returned error" in detail
+                )
+                if transient and attempt < attempts - 1:
                     time.sleep(min(60, 5 * 2**attempt))
                     continue
                 raise ModelError(f"HTTP {exc.code}: {detail}") from None
@@ -210,6 +213,8 @@ class Run:
     seconds: float = 0.0
     error: str | None = None
     tools_used: list[str] = field(default_factory=list)
+    # Each call as "name {arguments}" (cut), to see how models use the tools.
+    calls: list[str] = field(default_factory=list)
 
 
 async def run_one(
@@ -275,8 +280,10 @@ async def run_one(
                     name = call["function"]["name"]
                     run.tool_calls += 1
                     run.tools_used.append(name)
+                    raw_args = call["function"].get("arguments") or "{}"
+                    run.calls.append(f"{name} {raw_args}"[:300])
                     try:
-                        args = json.loads(call["function"].get("arguments") or "{}")
+                        args = json.loads(raw_args)
                     except ValueError:
                         args = {}
                     try:

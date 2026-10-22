@@ -523,11 +523,24 @@ def _matches(item: Any, conditions: dict[str, Any]) -> bool:
             field_val = _get_field(item, key)
             if not _compare(field_val, value):
                 return False
-        else:
-            # Simple equality
-            if _get_field(item, key) != value:
-                return False
+        elif not _equals(_get_field(item, key), value):
+            return False
     return True
+
+
+def _equals(field_val: Any, value: Any) -> bool:
+    """
+    Equality as MongoDB applies it to lists: a value matches a list field
+    that contains it (``{"labels": "bug"}``), and a list matches a list
+    field that contains all of its values (``{"labels": ["bug"]}``).
+    """
+    if field_val == value:
+        return True
+    if isinstance(field_val, (list, tuple)):
+        if isinstance(value, (list, tuple)):
+            return bool(value) and all(v in field_val for v in value)
+        return value in field_val
+    return False
 
 
 def _compare(field_val: Any, ops: dict[str, Any]) -> bool:
@@ -546,13 +559,13 @@ def _compare(field_val: Any, ops: dict[str, Any]) -> bool:
             if field_val is None or not (field_val <= threshold):
                 return False
         elif op == "$ne":
-            if field_val == threshold:
+            if _equals(field_val, threshold):
                 return False
         elif op == "$in":
-            if field_val not in threshold:
+            if not _any_in(field_val, threshold):
                 return False
         elif op == "$nin":
-            if field_val in threshold:
+            if _any_in(field_val, threshold):
                 return False
         elif op == "$contains":
             if isinstance(field_val, (list, tuple)):
@@ -590,6 +603,15 @@ def _compare(field_val: Any, ops: dict[str, Any]) -> bool:
                 ],
             )
     return True
+
+
+def _any_in(field_val: Any, choices: Any) -> bool:
+    """``$in``: the value (or, for a list field, any element) is one of *choices*."""
+    if not isinstance(choices, (list, tuple, set)):
+        choices = [choices]
+    if isinstance(field_val, (list, tuple)):
+        return any(v in choices for v in field_val)
+    return field_val in choices
 
 
 def _compile_regex(pattern: str) -> "re.Pattern[str]":

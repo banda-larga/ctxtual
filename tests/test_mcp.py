@@ -1468,6 +1468,70 @@ class TestRealWorldShapes:
                 )  # the replaced result, not a stale copy
             assert offload._cache  # repeated reads come from memory
 
+    async def test_small_model_argument_habits(self):
+        """Calls a 2.6B model made in the benchmark, which used to fail."""
+
+        def issues() -> list[dict]:
+            return [
+                {"n": i, "state": ["open", "closed"][i % 2],
+                 "labels": [["bug"], ["docs"], ["bug", "ci"]][i % 3],
+                 "comments": i % 25, "pad": "x" * 80}
+                for i in range(300)
+            ]  # fmt: skip
+
+        truth = {"result": {"count": 56}}
+        async with Client(self._mcp(issues)) as c:
+            rid = json.loads(text(await c.call_tool("issues", {})))["result_id"]
+
+            async def query(**args):
+                r = await c.call_tool("result_query", args, raise_on_error=False)
+                return r.is_error, json.loads(text(r))
+
+            steps = [
+                {"filter": {"labels": ["bug"]}},
+                {"filter": {"comments": {"$gt": 10}}},
+            ]
+            # a top-level operation next to steps that end in a count
+            err, out = await query(
+                result_id=rid,
+                filter={"state": "open"},
+                steps=[*steps, {"count": True}],
+                save_as=None,
+            )
+            assert not err and out["result"] == truth["result"]
+            # {"operation": ..., "params": ...} steps
+            err, out = await query(
+                result_id=rid,
+                steps=[
+                    {"operation": "filter", "params": {"state": "open"}},
+                    {"operation": "filter", "params": {"labels": "bug"}},
+                    {"operation": "filter", "params": {"comments": {"$gt": 10}}},
+                    {"operation": "count"},
+                ],
+            )
+            assert not err and out["result"] == truth["result"]
+            # several operations in one step; aliases; fields as a select
+            err, out = await query(
+                id=rid,
+                steps=[{"filter": {"state": "open", "labels": "bug"}, "limit": 3}],
+                fields=["n"],
+            )
+            assert not err and [r["row"] for r in out["rows"]] == [
+                {"n": 0},
+                {"n": 2},
+                {"n": 6},
+            ]
+            r = await c.call_tool(
+                "result_search", {"result_id": rid, "q": "x", "top_k": 2}
+            )
+            assert json.loads(text(r))["returned"] == 2
+            r = await c.call_tool(
+                "result_read", {"result_id": rid, "bogus": 1}, raise_on_error=False
+            )
+            problem = json.loads(text(r))
+            assert r.is_error and "'bogus'" in problem["error"]
+            assert "result_id" in problem["suggested_action"]
+
     async def test_default_threshold_leaves_medium_results_inline(self):
         def medium() -> str:
             return "x" * 15_000

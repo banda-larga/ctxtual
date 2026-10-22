@@ -814,3 +814,28 @@ class TestPipelineRealWorldPatterns:
         )
         assert len(result) == 2
         assert result[0]["name"] == "B"  # rank 1
+
+
+class TestListFieldEquality:
+    """Filters on list fields follow MongoDB: values match elements."""
+
+    ROWS = [{"labels": ["bug", "ci"]}, {"labels": ["docs"]}, {"labels": []}]  # noqa: RUF012
+
+    def run(self, condition):
+        from ctxtual.pipeline import PipelineEngine
+
+        out = PipelineEngine().execute(self.ROWS, [{"filter": condition}])
+        return [self.ROWS.index(r) for r in out]
+
+    def test_value_matches_an_element(self):
+        assert self.run({"labels": "bug"}) == [0]
+
+    def test_list_matches_when_all_are_contained(self):
+        assert self.run({"labels": ["bug"]}) == [0]
+        assert self.run({"labels": ["bug", "ci"]}) == [0]
+        assert self.run({"labels": ["bug", "docs"]}) == []
+
+    def test_operators_on_elements(self):
+        assert self.run({"labels": {"$ne": "bug"}}) == [1, 2]
+        assert self.run({"labels": {"$in": ["docs", "ci"]}}) == [0, 1]
+        assert self.run({"labels": {"$nin": ["bug"]}}) == [1, 2]

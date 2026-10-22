@@ -264,6 +264,24 @@ class Offload(ToolInjectionMiddleware):
     async def on_call_tool(self, context: Any, call_next: Any) -> Any:
         await self._ensure_names()
         name = context.message.name
+        if name in self._own_names:
+            arguments = dict(context.message.arguments or {})
+            fixed, unknown = _normalize_arguments(
+                self._own_kinds[name], arguments, self._own_params[name]
+            )
+            if unknown:
+                valid = ", ".join(sorted(self._own_params[name]))
+                return _result(
+                    {
+                        "error": f"{name} has no argument {', '.join(map(repr, unknown))}.",
+                        "suggested_action": f"Use only: {valid}.",
+                    },
+                    is_error=True,
+                )
+            if fixed != arguments:
+                message = context.message.model_copy(update={"arguments": fixed})
+                context = context.copy(message=message)
+            return await call_next(context)
         limit = self.threshold_for(name)
         try:
             result = await call_next(context)
@@ -515,6 +533,12 @@ class Offload(ToolInjectionMiddleware):
         }
         tools = [makers[name]() for name in self.tools]
         self._own_names = {t.name for t in tools}
+        self._own_kinds = {
+            t.name: kind for t, kind in zip(tools, self.tools, strict=True)
+        }
+        self._own_params = {
+            t.name: set(t.parameters.get("properties", {})) for t in tools
+        }
         return tools
 
     async def _ensure_names(self) -> None:
@@ -1147,7 +1171,106 @@ def _steps_arg(value: Any) -> list[Any]:
             "steps must be a list of operations.",
             'Pass steps as a list like [{"filter": {...}}, {"limit": 10}].',
         )
-    return value
+    return [step for raw in value for step in _step_forms(raw)]
+
+
+_OP_KEYS = ("operation", "op", "type", "action", "name")
+_PARAM_KEYS = ("params", "parameters", "args", "arguments", "value", "spec")
+
+
+def _step_forms(step: Any) -> list[Any]:
+    """
+    One step in the engine's form ``{operation: parameters}``: also accepts
+    ``{"operation": "filter", "params": {...}}`` and splits a step that
+    names several operations (``{"filter": ..., "limit": 10}``) in order.
+    """
+    if not isinstance(step, dict):
+        return [step]
+    op_key = next((k for k in _OP_KEYS if isinstance(step.get(k), str)), None)
+    if op_key is not None and step[op_key] in PipelineEngine.OPERATORS:
+        params = next((step[k] for k in _PARAM_KEYS if k in step), True)
+        return [{step[op_key]: params}]
+    if len(step) > 1 and all(k in PipelineEngine.OPERATORS for k in step):
+        return [{k: v} for k, v in step.items()]
+    return [step]
+
+
+#: Argument names models use for the real ones, per tool ("*": every tool).
+_ALIASES: dict[str, dict[str, str]] = {
+    "*": {
+        "id": "result_id",
+        "resultId": "result_id",
+        "result": "result_id",
+        "stored_result": "result_id",
+        "workspace_id": "result_id",
+    },
+    "search": {
+        "q": "query",
+        "text": "query",
+        "keyword": "query",
+        "keywords": "query",
+        "search": "query",
+        "limit": "max_results",
+        "top_k": "max_results",
+        "k": "max_results",
+    },
+    "read": {
+        "idx": "index",
+        "item": "index",
+        "item_index": "index",
+        "page_number": "page",
+        "size": "page_size",
+        "limit": "page_size",
+        "path": "field",
+        "key": "field",
+    },
+    "query": {"pipeline": "steps", "operations": "steps", "ops": "steps"},
+}
+
+
+def _normalize_arguments(
+    kind: str, arguments: dict[str, Any], params: set[str]
+) -> tuple[dict[str, Any], list[str]]:
+    """
+    Arguments under the names the tool uses: common aliases renamed (``id``
+    → ``result_id``, ``limit`` → ``max_results``), and for the query tool,
+    operations given as top-level arguments (``filter=…, limit=…``) moved
+    into ``steps``.  Returns the arguments and the names still unknown.
+    """
+    aliases = {**_ALIASES["*"], **_ALIASES.get(kind, {})}
+    fixed: dict[str, Any] = {}
+    steps: list[Any] = []
+    unknown = []
+    for key, value in arguments.items():
+        if key in params:
+            fixed[key] = value
+        elif aliases.get(key) in params and aliases[key] not in arguments:
+            fixed.setdefault(aliases[key], value)
+        elif kind == "query" and key in PipelineEngine.OPERATORS:
+            steps.append({key: value})
+        elif kind == "query" and key == "query" and isinstance(value, str):
+            steps.append({"search": {"query": value}})
+        elif kind == "query" and key == "fields" and value:
+            steps.append({"select": value if isinstance(value, list) else [value]})
+        else:
+            unknown.append(key)
+    if steps:
+        given = fixed.get("steps")
+        if isinstance(given, dict):
+            given = [given]
+        given = given if isinstance(given, list) else []
+        # Before the first step that aggregates (a filter after a count fails).
+        at = next(
+            (
+                i
+                for i, step in enumerate(given)
+                if isinstance(step, dict)
+                and set(step) & {"count", "group_by", "unique"}
+            ),
+            len(given),
+        )
+        fixed["steps"] = [*given[:at], *steps, *given[at:]]
+    return fixed, unknown
 
 
 def _principal_scope() -> str | None:
