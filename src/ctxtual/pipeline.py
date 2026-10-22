@@ -365,7 +365,13 @@ def _op_group_by(data: list[Any], params: Any) -> list[dict[str, Any]]:
     """Group items and compute aggregate metrics."""
     if not isinstance(data, list):
         raise PipelineError("group_by requires list input.")
-    if not isinstance(params, dict):
+    if isinstance(params, str) and params:
+        params = {"field": params}  # group_by "state": group by that field
+    elif isinstance(params, dict) and not ({"field", "by"} & set(params)):
+        rest = {k: v for k, v in params.items() if k != "metrics"}
+        if len(rest) == 1:  # {"state": ...}: the one key names the field
+            params = {"field": next(iter(rest)), "metrics": params.get("metrics")}
+    if not isinstance(params, dict) or not (params.get("field") or params.get("by")):
         raise PipelineError(
             'group_by requires {"field": ..., "metrics": {...}}.',
             example={
@@ -375,7 +381,7 @@ def _op_group_by(data: list[Any], params: Any) -> list[dict[str, Any]]:
         )
 
     field = params.get("field") or params.get("by", "")
-    metrics = params.get("metrics", {"count": "count"})
+    metrics = _metrics(params.get("metrics") or {"count": "count"})
 
     groups: dict[Any, list[dict[str, Any]]] = {}
     for item in data:
@@ -696,6 +702,34 @@ def _contains(items: Any, ops: set[Any]) -> bool:
         if op in (_sre_c.ASSERT, _sre_c.ASSERT_NOT) and _contains(av[1], ops):
             return True
     return False
+
+
+_METRIC_FNS = ("sum", "mean", "min", "max", "values", "median", "stddev")
+
+
+def _is_metric_spec(spec: Any) -> bool:
+    if not isinstance(spec, str):
+        return False
+    return spec == "count" or (spec.split(":", 1)[0] in _METRIC_FNS and ":" in spec)
+
+
+def _metrics(metrics: Any) -> dict[str, str]:
+    """
+    ``{name: spec}``; also accepts specs written as names (``{"count":
+    "errors"}``) and a list of specs (``["count", "mean:score"]``).
+    """
+    if isinstance(metrics, str):
+        metrics = [metrics]
+    if isinstance(metrics, list):
+        return {str(m).replace(":", "_"): m for m in metrics}
+    if not isinstance(metrics, dict):
+        return {"count": "count"}
+    fixed = {}
+    for name, spec in metrics.items():
+        if not _is_metric_spec(spec) and _is_metric_spec(name):
+            name, spec = str(spec), name  # written the other way round
+        fixed[name] = spec
+    return fixed
 
 
 def _compute_metric(spec: str, items: list[dict[str, Any]]) -> Any:

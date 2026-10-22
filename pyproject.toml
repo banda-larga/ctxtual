@@ -1,6 +1,6 @@
 [project]
 name = "ctxtual"
-version = "0.5.0"
+version = "0.5.1"
 description = "Keep large tool results out of the context window: offload them from any MCP server, or store them from your own agent tools"
 readme = "README.md"
 requires-python = ">=3.11"

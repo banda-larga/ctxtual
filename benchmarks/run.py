@@ -127,6 +127,9 @@ class OpenRouter:
                     data = json.load(response)
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode(errors="replace")[:500]
+                detail = re.sub(
+                    r',?\s*"user_id"\s*:\s*"[^"]*"', "", detail
+                )  # account id
                 transient = exc.code in (429, 502, 503, 504) or (
                     exc.code == 400 and "Provider returned error" in detail
                 )
@@ -380,6 +383,15 @@ def _append(path: Path, line: str) -> None:
         f.write(line + "\n")
 
 
+def infrastructure_failure(run: Run) -> bool:
+    """
+    A run that failed for reasons outside the model and the tools (a provider
+    timeout or outage).  A result too large for the model's context window is
+    not one: that is what a user gets.
+    """
+    return bool(run.error) and "maximum context length" not in run.error
+
+
 def regrade(paths: list[str]) -> list[Run]:
     """Saved runs, graded again with the current rules (no API calls)."""
     by_name = {(size, t.name): t for size in SIZES for t in tasks(size)}
@@ -395,18 +407,26 @@ def regrade(paths: list[str]) -> list[Run]:
 
 def report(runs: list[Run]) -> str:
     groups: dict[tuple[str, str, str], list[Run]] = {}
+    left_out: dict[tuple[str, str, str], int] = {}
     for run in runs:
-        groups.setdefault((run.model, run.size, run.condition), []).append(run)
+        key = (run.model, run.size, run.condition)
+        if infrastructure_failure(run):
+            left_out[key] = left_out.get(key, 0) + 1
+            continue
+        groups.setdefault(key, []).append(run)
     lines = [
-        "| model | size | condition | correct | errors | prompt tokens (mean) "
-        "| cost (total $) | tool calls (mean) | seconds (mean) |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| model | size | condition | correct | exceeded context | left out "
+        "| prompt tokens (mean) | cost (total $) | tool calls (mean) | seconds (mean) |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
-    for (model, size, condition), rs in sorted(groups.items()):
+    for key, rs in sorted(groups.items()):
+        model, size, condition = key
         n = len(rs)
+        ran = [r for r in rs if not r.error] or rs  # tokens of runs that completed
         lines.append(
             f"| {model} | {size} | {condition} | {sum(r.correct for r in rs)}/{n} "
-            f"| {sum(bool(r.error) for r in rs)} | {sum(r.prompt_tokens for r in rs) // n:,} "
+            f"| {sum(bool(r.error) for r in rs)} | {left_out.get(key, 0)} "
+            f"| {sum(r.prompt_tokens for r in ran) // len(ran):,} "
             f"| {sum(r.cost for r in rs):.4f} | {sum(r.tool_calls for r in rs) / n:.1f} "
             f"| {sum(r.seconds for r in rs) / n:.1f} |"
         )

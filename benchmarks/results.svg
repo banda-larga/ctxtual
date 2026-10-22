@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<rect width="760" height="420" fill="#ffffff"/>
+<text x="70" y="34" font-size="18" font-weight="600" fill="#0f172a">Correct answers to questions about large tool results</text>
+<text x="70" y="56" font-size="13" fill="#475569">6 tasks per size, each model answering every task · below each bar: prompt tokens per task</text>
+<line x1="70" x2="740" y1="320.0" y2="320.0" stroke="#e2e8f0"/>
+<text x="62" y="324.0" font-size="12" fill="#64748b" text-anchor="end">0%</text>
+<line x1="70" x2="740" y1="265.0" y2="265.0" stroke="#e2e8f0"/>
+<text x="62" y="269.0" font-size="12" fill="#64748b" text-anchor="end">25%</text>
+<line x1="70" x2="740" y1="210.0" y2="210.0" stroke="#e2e8f0"/>
+<text x="62" y="214.0" font-size="12" fill="#64748b" text-anchor="end">50%</text>
+<line x1="70" x2="740" y1="155.0" y2="155.0" stroke="#e2e8f0"/>
+<text x="62" y="159.0" font-size="12" fill="#64748b" text-anchor="end">75%</text>
+<line x1="70" x2="740" y1="100.0" y2="100.0" stroke="#e2e8f0"/>
+<text x="62" y="104.0" font-size="12" fill="#64748b" text-anchor="end">100%</text>
+<rect x="116.5" y="100.0" width="70" height="220.0" rx="3" fill="#2563eb"/>
+<text x="151.5" y="92.0" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">100%</text>
+<text x="151.5" y="338" font-size="12" fill="#475569" text-anchor="middle">7.8k tok</text>
+<rect x="202.5" y="122.0" width="70" height="198.0" rx="3" fill="#94a3b8"/>
+<text x="237.5" y="114.0" font-size="14" font-weight="500" fill="#0f172a" text-anchor="middle">90%</text>
+<text x="237.5" y="338" font-size="12" fill="#475569" text-anchor="middle">27k tok</text>
+<rect x="288.5" y="214.4" width="70" height="105.6" rx="3" fill="#cbd5e1"/>
+<text x="323.5" y="206.4" font-size="14" font-weight="500" fill="#0f172a" text-anchor="middle">48%</text>
+<text x="323.5" y="338" font-size="12" fill="#475569" text-anchor="middle">116k tok</text>
+<text x="237.5" y="362" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle">Tool result ≈ 30k tokens</text>
+<rect x="451.5" y="100.0" width="70" height="220.0" rx="3" fill="#2563eb"/>
+<text x="486.5" y="92.0" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">100%</text>
+<text x="486.5" y="338" font-size="12" fill="#475569" text-anchor="middle">8.2k tok</text>
+<rect x="537.5" y="234.2" width="70" height="85.8" rx="3" fill="#94a3b8"/>
+<text x="572.5" y="226.2" font-size="14" font-weight="500" fill="#0f172a" text-anchor="middle">39%</text>
+<text x="572.5" y="338" font-size="12" fill="#475569" text-anchor="middle">226k tok</text>
+<rect x="623.5" y="282.6" width="70" height="37.4" rx="3" fill="#cbd5e1"/>
+<text x="658.5" y="274.6" font-size="14" font-weight="500" fill="#0f172a" text-anchor="middle">17%</text>
+<text x="658.5" y="338" font-size="12" fill="#475569" text-anchor="middle">80k tok</text>
+<text x="572.5" y="362" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle">Tool result ≈ 300k tokens</text>
+<rect x="70" y="382" width="14" height="14" rx="2" fill="#2563eb"/>
+<text x="90" y="394" font-size="13" fill="#334155">ctxtual</text>
+<rect x="190" y="382" width="14" height="14" rx="2" fill="#94a3b8"/>
+<text x="210" y="394" font-size="13" fill="#334155">Full result in context</text>
+<rect x="400" y="382" width="14" height="14" rx="2" fill="#cbd5e1"/>
+<text x="420" y="394" font-size="13" fill="#334155">Truncated at 40k characters</text>
+</svg>

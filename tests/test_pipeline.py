@@ -839,3 +839,39 @@ class TestListFieldEquality:
         assert self.run({"labels": {"$ne": "bug"}}) == [1, 2]
         assert self.run({"labels": {"$in": ["docs", "ci"]}}) == [0, 1]
         assert self.run({"labels": {"$nin": ["bug"]}}) == [1, 2]
+
+
+class TestGroupByForms:
+    """group_by as small models write it (seen in the benchmark)."""
+
+    ROWS = [{"s": "a"}, {"s": "a"}, {"s": "b"}]  # noqa: RUF012
+    EXPECTED = [{"s": "a", "count": 2}, {"s": "b", "count": 1}]  # noqa: RUF012
+
+    def run(self, step):
+        from ctxtual.pipeline import PipelineEngine
+
+        return PipelineEngine().execute(self.ROWS, [step])
+
+    def test_field_name_alone(self):
+        assert self.run({"group_by": "s"}) == self.EXPECTED
+
+    def test_one_key_object_names_the_field(self):
+        assert self.run({"group_by": {"s": "s"}}) == self.EXPECTED
+
+    def test_metrics_written_the_other_way_round(self):
+        out = self.run({"group_by": {"field": "s", "metrics": {"count": "n"}}})
+        assert out == [{"s": "a", "n": 2}, {"s": "b", "n": 1}]
+
+    def test_metrics_as_a_list(self):
+        assert (
+            self.run({"group_by": {"field": "s", "metrics": ["count"]}})
+            == self.EXPECTED
+        )
+
+    def test_empty_group_by_is_an_error(self):
+        import pytest
+
+        from ctxtual.pipeline import PipelineError
+
+        with pytest.raises(PipelineError, match="group_by requires"):
+            self.run({"group_by": {}})

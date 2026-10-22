@@ -13,6 +13,14 @@ gives the model a short notice — a preview, the fields, the size — plus tool
 to search, filter, aggregate and page through the stored data. Small results
 pass through untouched.
 
+[![Benchmark results](benchmarks/results.svg)](benchmarks/RESULTS.md)
+
+Across five models, questions about large tool results were answered
+correctly every time through ctxtual, at about 8,000 prompt tokens each
+whether the result held 30k or 300k tokens. With the whole 300k-token result
+in context, models were right 39% of the time; with it truncated, 17%.
+[Full results and method →](benchmarks/RESULTS.md)
+
 It works two ways:
 
 - **With any MCP server, no code:** `ctxtual install <client>` wraps the

@@ -1198,6 +1198,12 @@ def _step_forms(step: Any) -> list[Any]:
     if op_key is not None and step[op_key] in PipelineEngine.OPERATORS:
         params = next((step[k] for k in _PARAM_KEYS if k in step), True)
         return [{step[op_key]: params}]
+    if "group_by" in step and "metrics" in step:
+        # {"group_by": "state", "metrics": {...}}: metrics belong inside
+        by = step["group_by"]
+        by = dict(by) if isinstance(by, dict) else {"field": by}
+        by.setdefault("metrics", step["metrics"])
+        step = {**{k: v for k, v in step.items() if k != "metrics"}, "group_by": by}
     if len(step) > 1 and all(k in PipelineEngine.OPERATORS for k in step):
         return [{k: v} for k, v in step.items()]
     return [step]

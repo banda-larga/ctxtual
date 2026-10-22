@@ -1,39 +1,44 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
+
+Measured with real models: through ctxtual, five models answered every
+question about large tool results correctly, at about 8,000 prompt tokens
+each, against 39% with the whole 300k-token result in context
+([results](benchmarks/RESULTS.md)). The result tools now also accept the
+calls small models make.
+
+### Added
+
+- `benchmarks/`: six questions about large tool results, each answered
+  through ctxtual, with the whole result in context, and with it truncated;
+  runs any OpenRouter model, and re-grades saved runs. Results and run data
+  in `benchmarks/RESULTS.md` and `benchmarks/data/`.
+
+### Changed
+
+- Pipeline filters on list fields follow MongoDB: `{"labels": "bug"}`
+  matches items whose `labels` contain `"bug"`, a list matches when the
+  field contains all its values, and `$ne`/`$in`/`$nin` test the elements.
+- `group_by` accepts a bare field name (`{"group_by": "state"}`), metrics as
+  a list, and metrics written as `{"count": "n"}`.
 
 ### Fixed
 
+- The result tools accept the ways small models call them: argument aliases
+  (`id`, `limit`, `q`, `idx`, …), operations passed next to `steps`
+  (`filter=…, limit=…`), steps written as `{"operation": "filter", "params":
+  {...}}` or with several operations in one, `metrics` next to `group_by`,
+  `fields` on `result_query`, and `"none"`/`"null"` for an empty optional
+  argument. Unknown arguments get a fixable error listing the valid ones.
 - When a list's other fields (`{"items": [...], "facets": {...}}`) were too
   long for the notice, the cut part could not be reached; it is now stored as
   a second result, whose `result_id` the notice gives.
 - With a SQLite store, every exploration call read the whole result from
-  disk (0.2 s for 100,000 rows); results read are now kept in memory, by id
-  and creation time, up to 100 million characters.
-- Outlines include underlined headings (`Title` over `=====` or `-----`).
-- Outlines of documents with many sections of one level showed only the
-  first 49; they now sample the sections evenly across the whole text.
-
-- The result tools accept the ways small models actually call them (seen
-  in the benchmark with a 2.6B model): common argument aliases (`id`,
-  `limit`, `q`, `idx`…), operations passed next to `steps` (`filter=…,
-  limit=…`), steps written as `{"operation": "filter", "params": {...}}` or
-  with several operations in one, and `fields` on `result_query`. Unknown
-  arguments get a fixable error listing the valid ones instead of a raw
-  validation error.
-- Pipeline filters on list fields follow MongoDB: `{"labels": "bug"}`
-  matches items whose `labels` contain `"bug"`, a list matches when all its
-  values are contained, and `$ne`/`$in`/`$nin` test the elements.
-
-### Added
-
-- `benchmarks/`: measures ctxtual with real models through OpenRouter (six
-  tasks over large results; inline, truncated and ctxtual conditions).
-- CI and release workflows use actions on the Node 24 runtime.
-- The code base is formatted with `ruff format`, and CI checks formatting
-  and lints the whole repository (examples and notebooks included) with a
-  stricter rule set; this fixed unused and unsorted imports in the
-  notebooks, and made backup timestamps timezone-aware.
+  disk (0.2 s for 100,000 rows); results read are now kept in memory.
+- Outlines include underlined headings (`Title` over `=====` or `-----`),
+  and outlines of long documents span the whole text instead of its first
+  sections.
 
 ## 0.5.0
 

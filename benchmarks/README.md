@@ -1,5 +1,7 @@
 # Benchmark
 
+Results: [RESULTS.md](RESULTS.md).
+
 Does ctxtual help real models answer questions about large tool results,
 and at what cost? This harness measures it through
 [OpenRouter](https://openrouter.ai), so any model can be compared.

@@ -1521,6 +1521,14 @@ class TestRealWorldShapes:
                 {"n": 2},
                 {"n": 6},
             ]
+            # metrics next to group_by, written the other way round
+            err, out = await query(
+                result_id=rid,
+                steps=[{"group_by": "state", "metrics": {"count": "n"}}],
+            )
+            assert not err and {r["state"]: r["n"] for r in out["rows"]} == {
+                "open": 150, "closed": 150
+            }  # fmt: skip
             # "none" for an empty optional argument (not a result named saved_none)
             err, out = await query(result_id=rid, steps=[{"limit": 1}], save_as="none")
             assert not err and out["returned"] == 1
