@@ -57,6 +57,12 @@ class Truncate(Middleware):
     def __init__(self, limit: int) -> None:
         self.limit = limit
 
+    async def on_list_tools(self, context: Any, call_next: Any) -> Any:
+        # A cut result no longer matches the declared output schema, and
+        # clients reject results that don't: drop it, as Offload does.
+        tools = await call_next(context)
+        return [t.model_copy(update={"output_schema": None}) for t in tools]
+
     async def on_call_tool(self, context: Any, call_next: Any) -> Any:
         result = await call_next(context)
         if not isinstance(result, ToolResult):
@@ -87,8 +93,11 @@ class ModelError(Exception):
 
 
 class OpenRouter:
-    def __init__(self, model: str, key: str, timeout: float = 300.0) -> None:
+    def __init__(
+        self, model: str, key: str, timeout: float = 300.0, cheapest: bool = False
+    ) -> None:
         self.model, self.key, self.timeout = model, key, timeout
+        self.cheapest = cheapest
 
     async def complete(self, messages: list[dict], tools: list[dict]) -> dict:
         body = {
@@ -97,6 +106,8 @@ class OpenRouter:
             "tools": tools,
             "usage": {"include": True},
         }
+        if self.cheapest:  # providers of one model can differ in price 30x
+            body["provider"] = {"sort": "price"}
         return await asyncio.to_thread(self._post, body)
 
     def _post(self, body: dict) -> dict:
@@ -109,19 +120,20 @@ class OpenRouter:
                 "X-Title": "ctxtual benchmark",
             },
         )
-        for attempt in range(4):
+        attempts = 7  # free models are rate limited: wait up to a few minutes
+        for attempt in range(attempts):
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     data = json.load(response)
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode(errors="replace")[:500]
-                if exc.code in (429, 502, 503) and attempt < 3:
-                    time.sleep(5 * 2**attempt)
+                if exc.code in (429, 502, 503) and attempt < attempts - 1:
+                    time.sleep(min(60, 5 * 2**attempt))
                     continue
                 raise ModelError(f"HTTP {exc.code}: {detail}") from None
             except (urllib.error.URLError, TimeoutError) as exc:
-                if attempt < 3:
-                    time.sleep(5 * 2**attempt)
+                if attempt < attempts - 1:
+                    time.sleep(min(60, 5 * 2**attempt))
                     continue
                 raise ModelError(str(exc)) from None
             if "error" in data:
@@ -189,6 +201,7 @@ class Run:
     expected: str = ""
     turns: int = 0
     tool_calls: int = 0
+    tool_errors: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
@@ -273,6 +286,7 @@ async def run_one(
                         text = "".join(getattr(b, "text", "") for b in result.content)
                     except Exception as exc:  # unknown tool, bad arguments
                         text = f"Error: {exc}"
+                        run.tool_errors += 1
                     run.largest_tool_result = max(run.largest_tool_result, len(text))
                     messages.append(
                         {"role": "tool", "tool_call_id": call["id"], "content": text}
@@ -293,11 +307,16 @@ def _extract_answer(content: str) -> str | None:
 def _grade(answer: str | None, task: Task) -> bool:
     if answer is None:
         return False
-    clean = answer.strip().strip("*`\"'. ").lower()
+    clean = re.sub(r"[*`]", "", answer).strip().strip("\"'. ").lower()
     if task.kind == "int":
         numbers = re.findall(r"-?\d+", clean.replace(",", ""))
-        return bool(numbers) and numbers[0].lstrip("#") == task.answer
-    return clean == task.answer.lower() or clean.strip("#") == task.answer.lower()
+        return bool(numbers) and numbers[0] == task.answer
+    # The expected text, possibly with explanation around it, and no other
+    # candidate named next to it.
+    words = set(re.findall(r"[\w-]+", clean))
+    return task.answer.lower() in clean and not any(
+        o.lower() in words for o in task.others
+    )
 
 
 # ── the whole benchmark ───────────────────────────────────────────────────
@@ -326,7 +345,9 @@ async def benchmark(args: argparse.Namespace) -> list[Run]:
     ) -> Run:
         async with limit:
             model = (
-                ScriptedModel(task) if args.self_test else OpenRouter(model_name, key)
+                ScriptedModel(task)
+                if args.self_test
+                else OpenRouter(model_name, key, cheapest=args.cheapest)
             )
             run = await run_one(
                 model, model_name, condition, size, task, args.truncate, args.max_turns
@@ -348,6 +369,19 @@ async def benchmark(args: argparse.Namespace) -> list[Run]:
 def _append(path: Path, line: str) -> None:
     with path.open("a") as f:
         f.write(line + "\n")
+
+
+def regrade(paths: list[str]) -> list[Run]:
+    """Saved runs, graded again with the current rules (no API calls)."""
+    by_name = {(size, t.name): t for size in SIZES for t in tasks(size)}
+    runs = []
+    for path in paths:
+        for line in Path(path).read_text().splitlines():
+            run = Run(**json.loads(line))
+            task = by_name[(run.size, run.task)]
+            run.correct = not run.error and _grade(run.answer, task)
+            runs.append(run)
+    return runs
 
 
 def report(runs: list[Run]) -> str:
@@ -391,13 +425,28 @@ def main(argv: list[str] | None = None) -> int:
         "--out", default=f"benchmarks/results/{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
     )
     parser.add_argument(
+        "--cheapest",
+        action="store_true",
+        help="send each request to the model's cheapest provider",
+    )
+    parser.add_argument(
+        "--report",
+        nargs="+",
+        metavar="RUNS",
+        help="re-grade saved runs (JSON Lines files) and print the table",
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="run with a scripted model, no API calls",
     )
     args = parser.parse_args(argv)
-    if not args.self_test and not args.models:
+    if not args.self_test and not args.models and not args.report:
         parser.error("--models is required (or --self-test)")
+    if args.report:
+        runs = regrade(args.report)
+        print(report(runs))
+        return 0
     runs = asyncio.run(benchmark(args))
     table = report(runs)
     print("\n" + table)

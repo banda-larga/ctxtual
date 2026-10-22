@@ -199,6 +199,9 @@ class Task:
     question: str
     answer: str
     kind: str  # "int" or "text": how the answer is compared
+    # Wrong answers of the same kind: a text answer naming one of these too
+    # is not correct (it hedges between candidates).
+    others: tuple[str, ...] = ()
 
 
 def tasks(size: str) -> list[Task]:
@@ -254,6 +257,7 @@ def tasks(size: str) -> list[Task]:
             "ERROR entries? Answer with the service name.",
             max(errors, key=errors.get),
             "text",
+            tuple(s for s in _SERVICES if s != max(errors, key=errors.get)),
         ),
         Task(
             "deps_mit",

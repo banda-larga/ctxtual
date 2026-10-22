@@ -41,8 +41,9 @@ results.
 
 The model gets a short system prompt (plus the server instructions, as
 clients pass them), the question, and the tools, and must end with
-`ANSWER: …`. A run is correct when that answer matches exactly (numbers
-compared as numbers).
+`ANSWER: …`. A run is correct when that answer gives the expected number
+(the first number in it), or contains the expected text without naming
+another candidate (e.g. a second service).
 
 ## Running it
 
@@ -54,7 +55,10 @@ uv run --extra mcp python benchmarks/run.py \
 ```
 
 Options: `--conditions`, `--tasks`, `--repeats`, `--truncate`,
-`--max-turns` (15), `--concurrency` (4), `--out`. Each run is appended to a
+`--max-turns` (15), `--concurrency` (4), `--out`, `--cheapest` (send each
+request to the model's cheapest provider: OpenRouter's providers for one
+model can differ 30× in price). `--report RUNS…` re-grades saved runs and
+prints the table without calling any model. Each run is appended to a
 JSON Lines file under `benchmarks/results/` as it finishes (answer, turns,
 tool calls, prompt and completion tokens, cached tokens, cost in dollars as
 OpenRouter reports it, the largest tool result, seconds, error), and a
