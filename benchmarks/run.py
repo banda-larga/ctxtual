@@ -215,6 +215,7 @@ class Run:
     tools_used: list[str] = field(default_factory=list)
     # Each call as "name {arguments}" (cut), to see how models use the tools.
     calls: list[str] = field(default_factory=list)
+    final: str | None = None  # the last reply (cut), to check grading
 
 
 async def run_one(
@@ -273,8 +274,9 @@ async def run_one(
                     }
                 )
                 if not calls:
+                    run.final = (message.get("content") or "")[-1000:]
                     run.answer = _extract_answer(message.get("content") or "")
-                    run.correct = _grade(run.answer, task)
+                    run.correct = _grade(run.answer or run.final, task)
                     break
                 for call in calls:
                     name = call["function"]["name"]
@@ -386,7 +388,7 @@ def regrade(paths: list[str]) -> list[Run]:
         for line in Path(path).read_text().splitlines():
             run = Run(**json.loads(line))
             task = by_name[(run.size, run.task)]
-            run.correct = not run.error and _grade(run.answer, task)
+            run.correct = not run.error and _grade(run.answer or run.final, task)
             runs.append(run)
     return runs
 

@@ -1521,6 +1521,9 @@ class TestRealWorldShapes:
                 {"n": 2},
                 {"n": 6},
             ]
+            # "none" for an empty optional argument (not a result named saved_none)
+            err, out = await query(result_id=rid, steps=[{"limit": 1}], save_as="none")
+            assert not err and out["returned"] == 1
             r = await c.call_tool(
                 "result_search", {"result_id": rid, "q": "x", "top_k": 2}
             )

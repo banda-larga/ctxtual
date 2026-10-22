@@ -727,8 +727,8 @@ class Offload(ToolInjectionMiddleware):
             _, payload = self._load(result_id)
             page = _int_arg("page", page)
             page_size = _int_arg("page_size", page_size)
-            index = None if index is None else _int_arg("index", index)
-            field = None if field is None else _str_arg("field", field)
+            index = None if _absent(index) else _int_arg("index", index)
+            field = None if _absent(field) else _str_arg("field", field)
             fields = _fields_arg(fields)
             if page < 0:
                 raise _FixableError(f"page {page} is negative.", "Pages start at 0.")
@@ -863,7 +863,7 @@ class Offload(ToolInjectionMiddleware):
                     f"Use {p}_search or {p}_read on it.",
                 )
             steps = _steps_arg(steps)
-            save_as = None if save_as is None else _str_arg("save_as", save_as)
+            save_as = None if _absent(save_as) else _str_arg("save_as", save_as)
             try:
                 output = self._engine.execute(payload, steps)
             except PipelineError as exc:
@@ -1143,8 +1143,16 @@ def _int_arg(name: str, value: Any) -> int:
         ) from None
 
 
+def _absent(value: Any) -> bool:
+    """An optional argument left empty: models also write "none" or "null"."""
+    return value is None or (isinstance(value, str) and value.strip().lower() in _EMPTY)
+
+
+_EMPTY = ("", "none", "null", "nil", "undefined")
+
+
 def _fields_arg(value: Any) -> list[str] | None:
-    if value is None or value == []:
+    if _absent(value) or value == []:
         return None
     if isinstance(value, str):
         value = [value]

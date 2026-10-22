@@ -41,7 +41,9 @@ results.
 
 The model gets a short system prompt (plus the server instructions, as
 clients pass them), the question, and the tools, and must end with
-`ANSWER: …`. A run is correct when that answer gives the expected number
+`ANSWER: …` (when a model forgets that line, its whole final reply is
+graded instead, in every condition alike). A run is correct when that
+answer gives the expected number
 (the first number in it), or contains the expected text without naming
 another candidate (e.g. a second service).
 
