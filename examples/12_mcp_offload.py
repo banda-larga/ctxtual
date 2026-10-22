@@ -69,7 +69,9 @@ async def main() -> None:
         )
         print(
             json.dumps(
-                {k: notice[k] for k in ("result_id", "items", "fields")}, indent=2
+                {k: notice[k] for k in ("result_id", "items", "fields")},
+                indent=2,
+                ensure_ascii=False,
             )
         )
         print("how_to_explore:", notice["how_to_explore"])
@@ -80,16 +82,16 @@ async def main() -> None:
             "result_query",
             {
                 "result_id": result_id,
+                "where": {"status": "refunded"},
                 "steps": [
-                    {"filter": {"status": "refunded"}},
                     {
                         "group_by": {
                             "field": "region",
                             "metrics": {"orders": "count", "total": "sum:amount"},
                         }
-                    },
-                    {"sort": {"field": "total", "order": "desc"}},
+                    }
                 ],
+                "sort": "-total",
             },
         )
         print(f"\nrefunds by region ({len(text(refunds))} chars):")

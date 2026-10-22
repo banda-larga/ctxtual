@@ -90,11 +90,12 @@ starts:
 ```
 
 It then reads page 19, or searches, instead of taking in all 52 pages.
-Lists get their field types, a preview, and a query example built from
-their real fields, e.g. `[{"filter": {"state": "open"}}, {"sort": {"field":
-"comments", "order": "desc"}}, {"limit": 10}]`.
+Lists come with each field and its values (`"state": "string · open 135,
+closed 65"`, `"comments": "integer · 0 to 99"`), a preview, and a query built
+from them, e.g. `result_query(result_id, where={"state": "open"},
+sort="-comments", limit=10)`.
 
-Four tools are added, about 4,300 characters of definitions in total:
+Four tools are added, about 4,800 characters of definitions in total:
 `result_search` (items or passages), `result_read` (pages, single items, long
 fields), `result_query` (filter, sort, group, count in one call) and
 `result_list`. The wrapped server's own instructions are kept; a short

@@ -47,16 +47,17 @@ from fastmcp.tools.base import InputRequiredToolResult, Tool, ToolResult
 from mcp_types import TextContent, ToolAnnotations
 from pydantic import WithJsonSchema
 
-from ctxtual.ctx import Ctx, _infer_item_schema
+from ctxtual.ctx import Ctx
 from ctxtual.exceptions import CtxtualError, WorkspaceConflictError
 from ctxtual.mcp.preview import (
     MISSING,
+    SUMMARY_SCAN,
     build_preview,
-    compact_schema,
     cut_strings,
     parse_text_payload,
     resolve_path,
     shrink,
+    summarize_fields,
     unwrap_structured,
 )
 from ctxtual.pipeline import PipelineEngine, PipelineError
@@ -467,7 +468,7 @@ class Offload(ToolInjectionMiddleware):
         steps = []
         if isinstance(payload, list):
             notice["items"] = len(payload)
-            fields = compact_schema(_infer_item_schema(payload))
+            fields, types = summarize_fields(payload)
             if fields:
                 notice["fields"] = fields
             notice["preview"] = build_preview(payload, max_items=self.preview_items)
@@ -483,8 +484,8 @@ class Offload(ToolInjectionMiddleware):
                 isinstance(i, dict) for i in payload[:200]
             ):
                 steps.append(
-                    f"{p}_query(result_id, steps) to filter, sort and count, e.g. "
-                    f"steps={_example_steps(payload, fields or {})}"
+                    f"{p}_query to filter, sort and count, e.g. "
+                    f"{_example_query(p, payload, types)}"
                 )
             if "read" in self.tools:
                 steps.append(
@@ -694,6 +695,12 @@ class Offload(ToolInjectionMiddleware):
 
     def _read_tool(self) -> Tool:
         p = self.prefix
+        # What a stored result is, said once: in the search tool when there is one.
+        about = (
+            f" (see {p}_search)"
+            if "search" in self.tools
+            else "." + _STORED.rstrip(".")
+        )
 
         def read(
             result_id: Annotated[
@@ -733,12 +740,16 @@ class Offload(ToolInjectionMiddleware):
             if page < 0:
                 raise _FixableError(f"page {page} is negative.", "Pages start at 0.")
             if not isinstance(payload, list):
-                if index is not None or field is not None or fields:
+                if index is not None or field is not None:
                     raise _FixableError(
-                        "This stored result is a text; index, field and fields apply to lists.",
+                        "This stored result is a text; index and field apply to lists.",
                         f"Read it by page, or find passages with {p}_search.",
                     )
-                return {"result_id": result_id, **_text_page(payload, page)}
+                response = {"result_id": result_id, **_text_page(payload, page)}
+                if fields or page_size != 10:
+                    # They don't change what a page of text is: no need to fail.
+                    response["note"] = "page_size and fields apply to lists; ignored."
+                return response
             if field is not None and index is None:
                 raise _FixableError(
                     "field needs an index.", "Pass index=N with field=…."
@@ -821,7 +832,7 @@ class Offload(ToolInjectionMiddleware):
             read,
             f"{p}_read",
             (
-                f"Read a stored result.{_STORED} A text: page by page ({PAGE_CHARS:,} chars "
+                f"Read a stored result{about}. A text: page by page ({PAGE_CHARS:,} chars "
                 "each). A list: a page of items, or one item with index=N; long values in an "
                 "item are cut, read one in full with index=N and field=… (paged the same "
                 "way). fields=[...] keeps only some fields.\n"
@@ -839,19 +850,52 @@ class Offload(ToolInjectionMiddleware):
 
         def query(
             result_id: Annotated[Any, _param(_STR, "result_id of a stored list.")],
+            where: Annotated[
+                Any,
+                _param(
+                    {"type": "object"},
+                    "Keep items matching these conditions.",
+                    None,
+                ),
+            ] = None,
+            sort: Annotated[
+                Any,
+                _param(
+                    _STR,
+                    'Field to sort by; "-field" for descending.',
+                    None,
+                ),
+            ] = None,
+            limit: Annotated[Any, _param(_INT, "Keep the first N items.", None)] = None,
+            select: Annotated[
+                Any, _param(_FIELDS, "Only return these fields of each item.", None)
+            ] = None,
+            count_by: Annotated[
+                Any,
+                _param(
+                    _STR,
+                    "Count items per value of this field.",
+                    None,
+                ),
+            ] = None,
+            count: Annotated[
+                Any,
+                _param({"type": "boolean"}, "Return only how many items match.", False),
+            ] = False,
             steps: Annotated[
                 Any,
                 _param(
                     {"type": "array", "items": {"type": "object"}},
-                    "Operations applied in order; each is {operation: parameters}.",
+                    "Further operations, in order after where (see above).",
+                    None,
                 ),
-            ],
+            ] = None,
             save_as: Annotated[
                 Any,
                 _param(
                     _STR,
-                    "Store the full output as a new result named saved_<name> instead of "
-                    "returning it; saving again under the same name replaces it.",
+                    "Store the output as a new result, saved_<name>, instead of "
+                    "returning it.",
                     None,
                 ),
             ] = None,
@@ -862,42 +906,61 @@ class Offload(ToolInjectionMiddleware):
                     "This stored result is a text, not a list.",
                     f"Use {p}_search or {p}_read on it.",
                 )
-            steps = _steps_arg(steps)
+            plan = _plan(where, sort, limit, select, count_by, count, steps)
             save_as = None if _absent(save_as) else _str_arg("save_as", save_as)
             try:
-                output = self._engine.execute(payload, steps)
+                output = self._engine.execute(payload, plan)
             except PipelineError as exc:
                 extra = {k: v for k, v in exc.context.items() if k != "step"}
                 raise _FixableError(
                     str(exc),
-                    "Fix that step; the tool description shows the syntax.",
+                    "Fix that argument or step; the tool description shows the syntax.",
                     **extra,
                 ) from None
             if save_as is not None:
                 return self._save(meta.workspace_type, result_id, output, save_as)
+            empty = output == [] or (
+                isinstance(output, dict) and output.get("count") == 0
+            )
+            notes = [
+                n
+                for n in (
+                    _unknown_fields(payload, plan),
+                    _explain_empty(payload, plan) if empty else None,
+                )
+                if n
+            ]
+            note = " ".join(notes) if notes else None
             if not isinstance(output, list):
-                return {"result_id": result_id, "result": output}
-            return self._rows(result_id, payload, steps, output)
+                response = {"result_id": result_id, "result": output}
+            else:
+                response = self._rows(result_id, payload, plan, output)
+            if note:
+                response["note"] = note
+            return response
 
         return self._tool(
             query,
             f"{p}_query",
             (
-                f"Filter, sort, group or count a stored list in one call.{_STORED} Only the output "
+                f"Filter, sort, count or group a stored list. Only the output "
                 f"comes back (at most {MAX_ITEMS} rows, each with its index when it is an "
-                "item of the list). Dot paths ('author.name') address nested fields.\n"
-                "Steps:\n"
-                '  {"filter": {"state": "open", "score": {"$gte": 3}}}  operators: $gt $gte $lt '
-                f"$lte $ne $in $nin $contains $startswith $exists{regex}; $or/$and/$not\n"
-                '  {"search": {"query": "words"}}   {"sort": {"field": "score", "order": "desc"}}\n'
-                '  {"select": ["title", "score"]}   {"exclude": ["body"]}   {"limit": 10}   '
-                '{"skip": 10}   {"slice": [10, 20]}   {"unique": "author"}   {"flatten": "tags"}   '
-                '{"sample": 5}\n'
-                '  {"group_by": {"field": "state", "metrics": {"n": "count", "avg": "mean:score"}}}'
-                "  metrics: count sum: mean: min: max: median: stddev: values:\n"
-                '  {"count": true}'
+                "item of the list). The stored-result notice lists each field with its "
+                "values. Examples:\n"
+                '  where={"state": "open", "comments": {"$gt": 10}}, sort="-comments", '
+                "limit=5\n"
+                '  where={"level": "ERROR"}, count_by="service"\n'
+                '  where={"labels": "bug"}, count=true\n'
+                "where: equality, or $gt $gte $lt $lte $ne $in $nin $contains $startswith "
+                f"$exists{regex}; $or/$and/$not; a value matches inside a list field; dot "
+                "paths ('author.name') reach nested fields.\n"
+                "For more, steps=[...] runs operations in order after where: "
+                '{"search": {"query": "words"}}, {"unique": "author"}, '
+                '{"flatten": "tags"}, {"skip": 10}, {"sample": 5}, {"exclude": ["body"]}, '
+                '{"group_by": {"field": "state", "metrics": {"avg": "mean:score"}}} '
+                "(metrics: count, sum:, mean:, min:, max:, median:, stddev:, values:)."
             ),
-            size_hint="Ask for less: add a select step with fewer fields, or a limit step.",
+            size_hint="Ask for less: select fewer fields, or a smaller limit.",
         )
 
     def _rows(
@@ -1117,8 +1180,8 @@ def _param(schema: dict[str, Any], description: str, default: Any = _NO_DEFAULT)
     error as every other mistake instead of a raw validation message.
     """
     full = {**schema, "description": description}
-    if default is not _NO_DEFAULT:
-        full["default"] = default
+    if default is not _NO_DEFAULT and default is not None:
+        full["default"] = default  # "default": null says nothing
     return WithJsonSchema(full)
 
 
@@ -1238,7 +1301,21 @@ _ALIASES: dict[str, dict[str, str]] = {
         "path": "field",
         "key": "field",
     },
-    "query": {"pipeline": "steps", "operations": "steps", "ops": "steps"},
+    "query": {
+        "pipeline": "steps",
+        "operations": "steps",
+        "ops": "steps",
+        "filter": "where",
+        "filters": "where",
+        "conditions": "where",
+        "order_by": "sort",
+        "sort_by": "sort",
+        "orderBy": "sort",
+        "fields": "select",
+        "group_by_count": "count_by",
+        "top": "limit",
+        "n": "limit",
+    },
 }
 
 
@@ -1264,8 +1341,6 @@ def _normalize_arguments(
             steps.append({key: value})
         elif kind == "query" and key == "query" and isinstance(value, str):
             steps.append({"search": {"query": value}})
-        elif kind == "query" and key == "fields" and value:
-            steps.append({"select": value if isinstance(value, list) else [value]})
         else:
             unknown.append(key)
     if steps:
@@ -1453,11 +1528,225 @@ def _source_indices(
     return found if all(i is not None for i in found) else None
 
 
-def _example_steps(items: list[Any], fields: Mapping[str, Any]) -> str:
-    """A query example built from the result's real fields and values."""
+def _plan(
+    where: Any,
+    sort: Any,
+    limit: Any,
+    select: Any,
+    count_by: Any,
+    count: Any,
+    steps: Any,
+) -> list[Any]:
+    """The query's operations, in order: where, steps, count_by, then sort,
+    select and limit (or count)."""
+    plan: list[Any] = []
+    if not _absent(where):
+        if isinstance(where, str):
+            where = _where_text(where)
+        if not isinstance(where, dict):
+            raise _FixableError(
+                "where must be an object of conditions.",
+                'Pass where like {"state": "open", "comments": {"$gt": 10}}.',
+            )
+        if where:
+            plan.append({"filter": where})
+    if not _absent(steps) and steps != []:
+        plan.extend(_steps_arg(steps))
+    if not _absent(count_by):
+        field = _str_arg("count_by", count_by)
+        plan.append({"group_by": {"field": field, "metrics": {"count": "count"}}})
+        if _absent(sort):
+            plan.append({"sort": {"field": "count", "order": "desc"}})
+    if count is True or (isinstance(count, str) and count.lower() == "true"):
+        plan.append({"count": True})
+        return plan
+    if not _absent(sort):
+        # Highest priority last: the engine's sort is stable.
+        plan.extend(reversed(_sort_steps(sort)))
+    if not _absent(select):
+        plan.append({"select": _fields_arg(select)})
+    if not _absent(limit):
+        plan.append({"limit": _int_arg("limit", limit)})
+    return plan
+
+
+_CONDITION = re.compile(
+    r"""^\s*([\w.\-]+)\s*(==|!=|>=|<=|=|:|>|<)\s*(?:"([^"]*)"|'([^']*)'|(.*?))\s*$"""
+)
+_COMPARISONS = {">": "$gt", ">=": "$gte", "<": "$lt", "<=": "$lte", "!=": "$ne"}
+
+
+def _where_text(text: str) -> dict[str, Any]:
+    """
+    ``where`` given as text: JSON, or simple equality conditions as models
+    write them (``license:"MIT"``, ``state=open AND comments > 10``).
+    """
+    try:
+        value = json.loads(text)
+    except ValueError:
+        value = None
+    if isinstance(value, dict):
+        return value
+    conditions: dict[str, Any] = {}
+    for part in re.split(r"\s+(?:AND|and|&&)\s+|\s*,\s*", text.strip()):
+        match = _CONDITION.match(part)
+        if not match or not part.strip():
+            raise _FixableError(
+                f"where could not be read: {text!r:.80}.",
+                'Pass where as an object, like {"state": "open", "comments": {"$gt": 10}}.',
+            )
+        field, op, double, single, bare = match.groups()
+        raw = double if double is not None else single if single is not None else bare
+        if double is None and single is None:
+            with contextlib.suppress(ValueError):
+                raw = json.loads(raw)  # numbers, true/false, null
+        if op in _COMPARISONS:
+            conditions.setdefault(field, {})
+            if not isinstance(conditions[field], dict):
+                conditions[field] = {"$in": [conditions[field]]}
+            conditions[field][_COMPARISONS[op]] = raw
+        else:
+            conditions[field] = raw
+    return conditions
+
+
+def _sort_steps(sort: Any) -> list[dict[str, Any]]:
+    """``"-comments"``, ``"comments desc"``, ``{"field", "order"}``, or a list."""
+    specs = sort if isinstance(sort, list) else [sort]
+    out = []
+    for spec in specs:
+        if isinstance(spec, dict) and spec.get("field"):
+            out.append(
+                {"sort": {"field": spec["field"], "order": spec.get("order", "asc")}}
+            )
+            continue
+        if not isinstance(spec, str) or not spec.strip():
+            raise _FixableError(
+                f"sort must name a field, not {spec!r:.60}.",
+                'Pass sort like "-comments" (descending) or "title".',
+            )
+        text = spec.strip()
+        signs = len(text) - len(text.lstrip("+-"))
+        order = "desc" if text[:signs].count("-") % 2 else "asc"
+        text = text[signs:]
+        parts = text.replace(":", " ").split()
+        if len(parts) == 2 and parts[1].lower() in ("asc", "desc"):
+            text, order = parts[0], parts[1].lower()
+        out.append({"sort": {"field": text, "order": order}})
+    return out
+
+
+def _unknown_fields(payload: list[Any], plan: list[Any]) -> str | None:
+    """Fields named in sort or select steps that no item has."""
+    rows = [r for r in payload[:SUMMARY_SCAN] if isinstance(r, dict)]
+    if not rows:
+        return None
+    named: list[tuple[str, str]] = []
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+        if "group_by" in step or "unique" in step or "flatten" in step:
+            return None  # later steps name the new rows' fields
+        if isinstance(step.get("sort"), dict) and step["sort"].get("field"):
+            named.append(("sort by", str(step["sort"]["field"])))
+        if isinstance(step.get("select"), list):
+            named += [("select", str(f)) for f in step["select"]]
+    missing = []
+    for verb, field in named:
+        if all(resolve_path(r, field) is MISSING for r in rows):
+            hint = (
+                " (to count items per value, use count_by=<field>)"
+                if field == "count"
+                else ""
+            )
+            missing.append(f"no item has a field {field!r} to {verb}{hint}")
+    if not missing:
+        return None
+    fields = sorted({str(k) for r in rows[:200] for k in r})[:20]
+    return "; ".join(missing) + f". Fields: {', '.join(fields)}."
+
+
+def _explain_empty(payload: list[Any], plan: list[Any]) -> str | None:
+    """
+    Why a query matched nothing: for each equality condition whose value no
+    item has, the values the field does have (and a close match).
+    """
+    rows = [r for r in payload[:SUMMARY_SCAN] if isinstance(r, dict)]
+    if not rows:
+        return None
+    conditions: list[tuple[str, Any]] = []
+    for step in plan:
+        if isinstance(step, dict) and isinstance(step.get("filter"), dict):
+            for field, value in step["filter"].items():
+                if not str(field).startswith("$"):
+                    conditions.append((str(field), value))
+    if not conditions:
+        return None
+    problems = []
+    for field, wanted in conditions:
+        seen: dict[Any, int] = {}
+        present = 0
+        for row in rows:
+            value = resolve_path(row, field)
+            if value is MISSING:
+                continue
+            present += 1
+            for v in value if isinstance(value, list) else [value]:
+                if isinstance(v, (str, int, float, bool)) and (
+                    v in seen or len(seen) < 200
+                ):
+                    seen[v] = seen.get(v, 0) + 1
+        if not present:
+            names = sorted({str(k) for r in rows[:200] for k in r})[:20]
+            problems.append(
+                f"no item has a field {field!r} (fields: {', '.join(names)})"
+            )
+            continue
+        if isinstance(wanted, dict):
+            if any(str(k).startswith("$") for k in wanted):
+                continue  # operators: the values below would not say much
+            common = sorted(seen, key=lambda v: -seen[v])
+            shown = ", ".join(repr(v) for v in common[:10])
+            example = _dumps({field: common[0] if common else "value"})
+            problems.append(
+                f"{field} is compared to an object; its values are like {shown}. "
+                f"To match one, use {example}"
+            )
+            continue
+        candidates = wanted if isinstance(wanted, list) else [wanted]
+        missing = [
+            w
+            for w in candidates
+            if isinstance(w, (str, int, float, bool)) and w not in seen
+        ]
+        if not missing:
+            continue
+        common = sorted(seen, key=lambda v: -seen[v])
+        hint = ""
+        for w in missing:
+            close = [
+                v
+                for v in common
+                if isinstance(v, str) and isinstance(w, str) and v.lower() == w.lower()
+            ]
+            if close:
+                hint = f" (did you mean {close[0]!r}?)"
+                break
+        shown = ", ".join(repr(v) for v in common[:10])
+        more = f", … {len(common) - 10} more" if len(common) > 10 else ""
+        problems.append(
+            f"no item has {field}={missing[0]!r}{hint}; its values: {shown}{more}"
+        )
+    if problems:
+        return "No items match: " + "; ".join(problems) + "."
+    return None
+
+
+def _example_query(prefix: str, items: list[Any], types: Mapping[str, str]) -> str:
+    """A result_query call built from the result's real fields and values."""
     rows = [i for i in items[:200] if isinstance(i, dict)]
-    usable = {n: k for n, k in fields.items() if "." not in n and n != "…"}
-    steps: list[dict[str, Any]] = []
+    usable = {n: k for n, k in types.items() if "." not in n}
+    args = []
     # Filter on a category-like field: a short string with few distinct values.
     best: tuple[int, str, str] | None = None
     for name, kind in usable.items():
@@ -1475,14 +1764,14 @@ def _example_steps(items: list[Any], fields: Mapping[str, Any]) -> str:
         if category_like and (best is None or distinct < best[0]):
             best = (distinct, name, values[0])
     if best is not None:
-        steps.append({"filter": {best[1]: best[2]}})
+        args.append(f"where={_dumps({best[1]: best[2]})}")
     numeric = [
         n for n, k in usable.items() if k in ("integer", "number") and not _id_like(n)
     ]
     if numeric:
-        steps.append({"sort": {"field": numeric[0], "order": "desc"}})
-    steps.append({"limit": 10})
-    return _dumps(steps)
+        args.append(f'sort="-{numeric[0]}"')
+    args.append("limit=10")
+    return f"{prefix}_query(result_id, {', '.join(args)})"
 
 
 def _id_like(name: str) -> bool:

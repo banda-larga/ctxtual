@@ -17,6 +17,17 @@ calls small models make.
 
 ### Changed
 
+- Notices describe each field with its values, so the model doesn't have
+  to guess them: counts for fields with few values (`"state": "string · open
+  135, closed 65"`), ranges for numbers, what lists hold, free text marked
+  as text, and small nested objects per key (`author.login`). Lists of more
+  than 5,000 items are sampled, with values given as examples.
+- `result_query` takes flat arguments: `where={"state": "open"},
+  sort="-comments", limit=5`, `count_by="service"`, `count=true`, `select`.
+  `steps` remains for further operations and works as before.
+- A query that matches nothing says why: which condition has no match, the
+  field's actual values, and a close match (`'Open'` → `'open'`), or that no
+  item has that field.
 - Pipeline filters on list fields follow MongoDB: `{"labels": "bug"}`
   matches items whose `labels` contain `"bug"`, a list matches when the
   field contains all its values, and `$ne`/`$in`/`$nin` test the elements.
@@ -29,8 +40,10 @@ calls small models make.
   (`id`, `limit`, `q`, `idx`, …), operations passed next to `steps`
   (`filter=…, limit=…`), steps written as `{"operation": "filter", "params":
   {...}}` or with several operations in one, `metrics` next to `group_by`,
-  `fields` on `result_query`, and `"none"`/`"null"` for an empty optional
-  argument. Unknown arguments get a fixable error listing the valid ones.
+  `fields` on `result_query`, `where` written as text (`license:"MIT"`,
+  `state=open AND comments > 10`), list options on a text read (ignored),
+  and `"none"`/`"null"` for an empty optional argument. Unknown arguments get
+  a fixable error listing the valid ones.
 - When a list's other fields (`{"items": [...], "facets": {...}}`) were too
   long for the notice, the cut part could not be reached; it is now stored as
   a second result, whose `result_id` the notice gives.

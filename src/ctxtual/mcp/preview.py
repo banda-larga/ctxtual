@@ -7,6 +7,7 @@ is unit-testable on its own.
 
 import ast
 import json
+import random
 import re
 from typing import Any
 
@@ -242,3 +243,233 @@ def resolve_path(value: Any, path: str) -> Any:
         return MISSING
 
     return walk(value, 0)
+
+
+# ── field summaries ───────────────────────────────────────────────────────
+
+#: Items scanned to describe fields; larger lists are sampled at random
+#: (values are then given as examples, without counts).
+SUMMARY_SCAN = 5_000
+#: Distinct values listed for a field (more: "N distinct").
+SUMMARY_VALUES = 8
+#: Distinct values tracked per field before it counts as open-ended.
+_TRACK = 64
+#: Most fields described (nested paths included).
+_MAX_FIELDS = 50
+#: Nested objects with at most this many keys get one line per key.
+_EXPAND_KEYS = 8
+
+
+class _FieldStats:
+    __slots__ = (
+        "chars",
+        "count",
+        "distinct",
+        "elements",
+        "example",
+        "high",
+        "keys",
+        "low",
+        "overflow",
+        "strings",
+        "types",
+        "values",
+    )
+
+    def __init__(self) -> None:
+        self.count = 0
+        self.types: dict[str, int] = {}
+        self.values: dict[Any, int] = {}
+        self.overflow = False
+        self.low: Any = None
+        self.high: Any = None
+        self.chars = 0
+        self.strings = 0
+        self.elements: _FieldStats | None = None
+        self.keys: dict[str, int] = {}
+        self.distinct: set[Any] = set()  # for "unique" (bounded by SUMMARY_SCAN)
+        self.example: Any = None
+
+    def add(self, value: Any) -> None:
+        self.count += 1
+        kind = _kind(value)
+        self.types[kind] = self.types.get(kind, 0) + 1
+        if kind in ("integer", "number"):
+            self.low = value if self.low is None else min(self.low, value)
+            self.high = value if self.high is None else max(self.high, value)
+        if kind == "string":
+            self.chars += len(value)
+            self.strings += 1
+        if kind in ("string", "boolean", "integer", "number"):
+            self.distinct.add(value)
+            if self.example is None:
+                self.example = value
+            if value in self.values:
+                self.values[value] += 1
+            elif len(self.values) < _TRACK:
+                self.values[value] = 1
+            else:
+                self.overflow = True
+        elif kind == "array":
+            if self.elements is None:
+                self.elements = _FieldStats()
+            for element in value[:100]:
+                self.elements.add(element)
+        elif kind == "object":
+            for key in value:
+                if key in self.keys or len(self.keys) < _TRACK:
+                    self.keys[str(key)] = self.keys.get(str(key), 0) + 1
+
+
+_KINDS = {
+    type(None): "null",
+    bool: "boolean",
+    int: "integer",
+    float: "number",
+    str: "string",
+    list: "array",
+    dict: "object",
+}
+
+
+def _kind(value: Any) -> str:
+    return _KINDS.get(type(value), "string")
+
+
+def summarize_fields(items: list[Any]) -> tuple[dict[str, str], dict[str, str]]:
+    """
+    What a model needs to query a list of objects without guessing: each
+    field's type and, depending on the field, its values with counts
+    (``"state": "string · open 134, closed 66"``), its range, what a list
+    holds, or that it is free text.  Small nested objects are described per
+    key (``author.name``).  Returns ``(descriptions, types)``; types feed the
+    query example.
+    """
+    if len(items) > SUMMARY_SCAN:
+        # Random, not every n-th: data often repeats with a period.
+        picks = sorted(random.Random(0).sample(range(len(items)), SUMMARY_SCAN))
+        rows, exact = [items[i] for i in picks], False
+    else:
+        rows, exact = items, True
+    objects = [row for row in rows if isinstance(row, dict)]
+    if not objects:
+        return {}, {}
+    stats: dict[str, _FieldStats] = {}
+    for row in objects:
+        for key, value in row.items():
+            name = str(key)
+            if name not in stats and len(stats) >= _MAX_FIELDS:
+                continue
+            stats.setdefault(name, _FieldStats()).add(value)
+    # Nested paths for small objects (author.name), in order after the parent.
+    nested: dict[str, dict[str, _FieldStats]] = {}
+    for name, st in stats.items():
+        if st.keys and len(st.keys) <= _EXPAND_KEYS and not st.types.get("array"):
+            children: dict[str, _FieldStats] = {}
+            for row in objects:
+                inner = row.get(name)
+                if isinstance(inner, dict):
+                    for key, value in inner.items():
+                        children.setdefault(f"{name}.{key}", _FieldStats()).add(value)
+            nested[name] = children
+    descriptions: dict[str, str] = {}
+    types: dict[str, str] = {}
+    total = len(objects)
+    for name, st in stats.items():
+        for path, s in [(name, st), *nested.get(name, {}).items()]:
+            if len(descriptions) >= _MAX_FIELDS:
+                break
+            descriptions[path] = _describe(s, total, exact, expanded=path in nested)
+            types[path] = _main_type(s)
+    return descriptions, types
+
+
+def _main_type(st: _FieldStats) -> str:
+    kinds = [k for k in st.types if k != "null"]
+    if not kinds:
+        return "null"
+    if set(kinds) == {"integer", "number"}:
+        return "number"
+    return max(kinds, key=lambda k: st.types[k])
+
+
+def _describe(st: _FieldStats, total: int, exact: bool, expanded: bool = False) -> str:
+    kind = _main_type(st)
+    others = [
+        k
+        for k in st.types
+        if k not in ("null", kind) and not (kind == "number" and k == "integer")
+    ]
+    label = {"array": "list", "number": "number"}.get(kind, kind)
+    if kind == "string" and st.strings and st.chars / st.strings > 60:
+        label = "text"
+    if others:
+        label += " or " + " or ".join(others)
+    if st.types.get("null"):
+        label += " (or null)"
+    detail = _values_detail(st, kind, exact)
+    if kind == "array" and st.elements is not None and st.elements.count:
+        inner = _main_type(st.elements)
+        label = f"list of {inner}"
+        detail = _values_detail(st.elements, inner, exact)
+        if inner == "object" and st.elements.keys:
+            detail = "keys: " + ", ".join(list(st.elements.keys)[:SUMMARY_VALUES])
+    elif kind == "array":
+        detail = "always empty"
+    elif kind == "object" and st.keys:
+        detail = (
+            "keys below"
+            if expanded
+            else f"{len(st.keys)} keys: " + ", ".join(list(st.keys)[:SUMMARY_VALUES])
+        )
+    present = st.count / total if total else 1
+    if present < 0.95:
+        detail = (
+            f"{detail} · in {present:.0%} of items"
+            if detail
+            else f"in {present:.0%} of items"
+        )
+    return f"{label} · {detail}" if detail else label
+
+
+def _values_detail(st: _FieldStats, kind: str, exact: bool) -> str:
+    unique = exact and st.count > SUMMARY_VALUES and len(st.distinct) == st.count
+    if kind in ("integer", "number") and st.low is not None:
+        if st.low == st.high:
+            return f"always {_num(st.low)}"
+        span = f"{_num(st.low)} to {_num(st.high)}"
+        if not exact:
+            span = f"about {span}"
+        return f"{span}, unique" if unique else span
+    if kind in ("string", "boolean"):
+        if kind == "string" and st.strings and st.chars / st.strings > 60:
+            return f"~{st.chars // st.strings:,} chars"
+        if st.overflow or len(st.values) > SUMMARY_VALUES:
+            if unique:
+                many = "unique"
+            elif exact:
+                many = f"{len(st.distinct):,} distinct"
+            else:
+                many = (
+                    "many distinct"
+                    if st.overflow
+                    else f"at least {len(st.distinct)} distinct"
+                )
+            return f"{many}, e.g. {_short(st.example)}"
+        if exact and len(st.values) == 1 and st.count == sum(st.values.values()):
+            return f"always {_short(next(iter(st.values)))}"
+        ordered = sorted(st.values.items(), key=lambda kv: (-kv[1], str(kv[0])))
+        shown = [f"{_short(v)} {n}" if exact else _short(v) for v, n in ordered]
+        return ", ".join(shown) if exact else "includes " + ", ".join(shown)
+    return ""
+
+
+def _short(value: Any) -> str:
+    text = (
+        json.dumps(value, ensure_ascii=False) if isinstance(value, bool) else str(value)
+    )
+    return text if len(text) <= 32 else text[:31] + "…"
+
+
+def _num(value: Any) -> str:
+    return f"{value:g}" if isinstance(value, float) else str(value)

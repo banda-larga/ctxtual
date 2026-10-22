@@ -195,17 +195,18 @@ class TestNotice:
             notice = json.loads(text(r))
             assert notice["result_id"].startswith("rows_")
             assert notice["items"] == 500
+            # each field with what its values look like
             assert notice["fields"] == {
-                "id": "integer",
-                "name": "string",
-                "group": "integer",
-                "pad": "string",
+                "id": "integer · 0 to 499, unique",
+                "name": "string · unique, e.g. row 0",
+                "group": "integer · 0 to 6",
+                "pad": "string · always " + "x" * 31 + "…",
             }
             assert len(notice["preview"]) == 3
             how = notice["how_to_explore"]
             assert how.startswith("rows returned 500 items")
             # the example uses the result's real fields
-            assert '{"sort": {"field": "group", "order": "desc"}}' in how
+            assert 'result_query(result_id, sort="-group", limit=10)' in how
             assert (
                 "result_search(result_id, query)" in how and "narrower arguments" in how
             )
@@ -240,10 +241,12 @@ class TestNotice:
             assert listing["preview"].startswith("[FILE] report_0.txt\n")
             config = json.loads(text(await c.call_tool("config", {})))
             # an object keyed by name → a list of its entries
-            assert config["items"] == 200 and config["fields"]["key"] == "string"
+            assert config["items"] == 200
+            assert config["fields"]["key"].startswith("string · unique")
             assert "200 keys" in config["note"]
             logs = json.loads(text(await c.call_tool("jsonl", {})))
-            assert logs["items"] == 400 and logs["fields"]["level"] == "string"
+            assert logs["items"] == 400
+            assert logs["fields"]["level"] == "string · info 200, warn 200"
 
     async def test_large_errors_are_trimmed(self):
         async with Client(_server()) as c:
@@ -839,13 +842,11 @@ class TestRedesignReview:
         assert out[-2].endswith("Part 299") and "301 headings in all" in out[-1]
 
     def test_examples_skip_dotted_field_names(self):
-        from ctxtual.mcp.offload import _example_steps
+        from ctxtual.mcp.offload import _example_query
 
         rows = [{"meta.v": i, "kind": ["a", "b"][i % 2]} for i in range(50)]
-        steps = json.loads(
-            _example_steps(rows, {"meta.v": "integer", "kind": "string"})
-        )
-        assert steps == [{"filter": {"kind": "a"}}, {"limit": 10}]
+        call = _example_query("result", rows, {"meta.v": "integer", "kind": "string"})
+        assert call == 'result_query(result_id, where={"kind": "a"}, limit=10)'
 
     async def test_descriptions_and_notices_follow_the_tool_set(self):
         async with Client(_server(tools=["search"])) as c:
@@ -855,9 +856,23 @@ class TestRedesignReview:
             assert (
                 "narrower arguments" not in notice["how_to_explore"]
             )  # doc() has none
+        async with Client(_server(tools=["read", "query"])) as c:
+            desc = {t.name: t.description for t in await c.list_tools()}
+            assert "result_search" not in desc["result_read"]  # not offered
+            assert "notice with its result_id" in desc["result_read"]
         with pytest.raises(ValueError, match="at least one"):
             Offload(tools=[])
         assert Offload(tools=["Search"]).tools == ("search",)
+
+    async def test_read_on_text_ignores_page_size_and_fields(self):
+        async with Client(_server()) as c:
+            rid = json.loads(text(await c.call_tool("doc", {})))["result_id"]
+            r = await c.call_tool(
+                "result_read",
+                {"result_id": rid, "page": 1, "page_size": 20, "fields": ["text"]},
+            )
+            page = json.loads(text(r))
+            assert page["page"] == 1 and "ignored" in page["note"]
 
     async def test_read_on_text_rejects_list_arguments(self):
         async with Client(_server()) as c:
@@ -1551,6 +1566,142 @@ class TestRealWorldShapes:
             assert len(text(await c.call_tool("medium", {}))) == 15_000
 
 
+class TestClearQueries:
+    """Fields with their values, flat query arguments, empty results explained."""
+
+    ISSUES: ClassVar[list[dict]] = [
+        {
+            "number": i,
+            "state": ["open", "open", "closed"][i % 3],
+            "labels": [["bug"], ["docs"], ["bug", "ci"], []][i % 4],
+            "comments": i % 30,
+            "author": {"login": f"dev{i % 7}"},
+            "body": "word " * 40,
+        }
+        for i in range(300)
+    ]
+
+    def _mcp(self):
+        mcp = FastMCP("t")
+
+        @mcp.tool
+        def issues() -> list[dict]:
+            return TestClearQueries.ISSUES
+
+        mcp.add_middleware(Offload(threshold=8_000))
+        return mcp
+
+    async def test_notice_describes_values(self):
+        async with Client(self._mcp()) as c:
+            fields = json.loads(text(await c.call_tool("issues", {})))["fields"]
+            assert fields["state"] == "string · open 200, closed 100"
+            assert fields["labels"] == "list of string · bug 150, ci 75, docs 75"
+            assert fields["comments"] == "integer · 0 to 29"
+            assert fields["author"] == "object · keys below"
+            assert fields["author.login"].startswith("string · dev0 43, dev1 43")
+            assert fields["body"] == "text · ~200 chars"
+
+    async def test_flat_arguments(self):
+        async with Client(self._mcp()) as c:
+            rid = json.loads(text(await c.call_tool("issues", {})))["result_id"]
+
+            async def query(**args):
+                r = await c.call_tool(
+                    "result_query", {"result_id": rid, **args}, raise_on_error=False
+                )
+                assert not r.is_error, text(r)
+                return json.loads(text(r))
+
+            truth = sum(
+                1
+                for i in self.ISSUES
+                if i["state"] == "open" and "bug" in i["labels"] and i["comments"] > 10
+            )
+            out = await query(
+                where={"state": "open", "labels": "bug", "comments": {"$gt": 10}},
+                count=True,
+            )
+            assert out["result"] == {"count": truth}
+            out = await query(
+                where={"state": "open"},
+                sort="-comments",
+                limit=3,
+                select=["number", "comments"],
+            )
+            assert [r["row"]["comments"] for r in out["rows"]] == [28, 28, 28]
+            assert set(out["rows"][0]["row"]) == {"number", "comments"}
+            out = await query(count_by="state")
+            assert out["rows"][:2] == [
+                {"state": "open", "count": 200},
+                {"state": "closed", "count": 100},
+            ]
+            out = await query(where={"state": "closed"}, count_by="author.login")
+            assert (
+                out["total"] == 7
+                and out["rows"][0]["count"] >= out["rows"][-1]["count"]
+            )
+            # sort forms and names models use
+            for sort in (
+                "comments desc",
+                {"field": "comments", "order": "desc"},
+                ["-comments", "number"],
+            ):
+                out = await query(sort=sort, limit=1)
+                assert out["rows"][0]["row"]["comments"] == 29
+            out = await query(
+                filter={"state": "open"},
+                order_by="-comments",
+                fields=["number"],
+                limit=2,
+            )
+            assert len(out["rows"]) == 2 and set(out["rows"][0]["row"]) == {"number"}
+            # where written as text, as small models do
+            out = await query(where='license:"MIT"', count=True)  # no such field
+            assert (
+                out["result"] == {"count": 0} and "no item has a field" in out["note"]
+            )
+            out = await query(where="state=open AND comments > 10", count=True)
+            assert out["result"] == {
+                "count": sum(
+                    1
+                    for i in self.ISSUES
+                    if i["state"] == "open" and i["comments"] > 10
+                )
+            }
+            # sorting or selecting a field no item has says so
+            out = await query(sort="--count", limit=1)
+            assert "no item has a field 'count' to sort by" in out["note"]
+            assert "count_by" in out["note"]
+            out = await query(count_by="state", sort="-count")
+            assert "note" not in out and out["rows"][0]["count"] == 200
+            # steps still work, alone and after where
+            out = await query(where={"state": "open"}, steps=[{"count": True}])
+            assert out["result"] == {"count": 200}
+
+    async def test_empty_results_say_why(self):
+        async with Client(self._mcp()) as c:
+            rid = json.loads(text(await c.call_tool("issues", {})))["result_id"]
+
+            async def note(**args):
+                r = await c.call_tool("result_query", {"result_id": rid, **args})
+                return json.loads(text(r)).get("note")
+
+            n = await note(where={"state": "Open"}, count=True)
+            assert "did you mean 'open'?" in n and "'closed'" in n
+            n = await note(where={"labels": "Bug"})
+            assert "did you mean 'bug'?" in n
+            n = await note(where={"status": "open"}, count=True)
+            assert "no item has a field 'status'" in n and "state" in n
+            n = await note(where={"labels": {"bug": True}})
+            assert 'To match one, use {"labels": "bug"}' in n
+            # each condition matches something: nothing to point at
+            assert (
+                await note(where={"state": "closed", "comments": {"$gt": 100}}) is None
+            )
+            # results that are not empty carry no note
+            assert await note(where={"state": "open"}, count=True) is None
+
+
 class TestWrappedServerMetadata:
     def test_upstream_instructions_and_name_are_kept(self):
         async def run():
@@ -1585,24 +1736,21 @@ class TestPreview:
         wide = {f"k{i}": "v" * 100 for i in range(500)}
         assert len(json.dumps(build_preview(wide))) <= PREVIEW_MAX_CHARS + 100
 
-    def test_example_steps_use_category_fields(self):
-        from ctxtual.mcp.offload import _example_steps
+    def test_example_query_uses_category_fields(self):
+        from ctxtual.mcp.offload import _example_query
 
         rows = [
             {"id": i, "title": f"t{i}", "state": ["open", "closed"][i % 2], "n": i}
             for i in range(100)
         ]
-        steps = json.loads(
-            _example_steps(
-                rows,
-                {"id": "integer", "title": "string", "state": "string", "n": "integer"},
-            )
+        call = _example_query(
+            "result",
+            rows,
+            {"id": "integer", "title": "string", "state": "string", "n": "integer"},
         )
-        assert steps == [
-            {"filter": {"state": "open"}},
-            {"sort": {"field": "n", "order": "desc"}},
-            {"limit": 10},
-        ]
+        assert call == (
+            'result_query(result_id, where={"state": "open"}, sort="-n", limit=10)'
+        )
 
 
 class TestProxyStdio:

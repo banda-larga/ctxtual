@@ -6,8 +6,11 @@ unchanged. Larger ones are stored, and the model receives a **stored-result
 notice** instead:
 
 - `result_id`, the tool, and the size (`items` for a list, `chars` for a text)
-- for lists: `fields` (name → type), a 3-item `preview`, and a query example
-  built from the result's real fields
+- for lists: `fields`, each with its type and values: the values with their
+  counts when there are few (`"state": "string · open 135, closed 65"`), the
+  range of numbers, what a list holds, free text marked as text, small
+  nested objects per key (`author.login`); plus a 3-item `preview` and a
+  query built from the real fields
 - for markdown texts: an `outline` of the headings with the page each starts
   on (`#` and underlined `===`/`---` headings); for source code, of its
   definitions (`def`, `class`, `function`, …)
@@ -19,7 +22,7 @@ and four read-only tools that work on stored results:
 |---|---|
 | `result_search(result_id, query, max_results, fields)` | A list: the best-matching items, each with its `index`, plus how many items match any / all query words. A text: the passages with the exact phrase (nearby occurrences merged), or else the passages with the most and rarest query words, with their page. |
 | `result_read(result_id, page, page_size, index, field, fields)` | A text: one page (10,000 chars). A list: a page of items, or one item (`index`); one long value of an item in full, page by page (`index` + `field`, dot paths allowed). |
-| `result_query(result_id, steps, save_as)` | Filter, sort, select, group and count a list in one call. Rows that are items of the list come with their `index`. At most 50 rows (fewer if they are large) come back; `save_as` keeps the full output as a new stored result. |
+| `result_query(result_id, where, sort, limit, select, count_by, count, steps, save_as)` | Filter, sort, count and group a list in one call: `where={"state": "open"}, sort="-comments", limit=5`, or `count_by="service"`, or `count=true`. `where` takes MongoDB-style conditions; `steps` runs further operations in order. Rows that are items of the list come with their `index`. When nothing matches, the response says which condition has no match and what the field's values are. At most 50 rows (fewer if they are large) come back; `save_as` keeps the full output as a new stored result. |
 | `result_list()` | The stored results of this conversation, e.g. after it was summarized. |
 
 Long string values in listings are cut, with the exact `result_read` call
@@ -54,7 +57,7 @@ are, when the cut item doesn't.
 The explanation of stored results is appended to the server's instructions
 (the wrapped server's own instructions are kept), and each tool description
 also says it, since some clients don't show server instructions to the
-model. The four definitions take about 4,300 characters; clients cache them
+model. The four definitions take about 4,800 characters; clients cache them
 with the rest of the prompt. The upstream
 tool is never called again to explore a result, which matters for tools with
 side effects. JSON Lines output (one JSON object per line, as many logs are)
@@ -304,7 +307,7 @@ what you configure. That is what the MCP spec requires (no token passthrough).
   through pages takes more calls and tokens than receiving it whole. ctxtual
   pays off when the model needs a part of the result — a search, a filter, a
   count — which is the common case.
-- Each wrapped server adds four tools (about 4,300 characters of
+- Each wrapped server adds four tools (about 4,800 characters of
   definitions) to the client's tool list; `--tools` can add fewer.
 - Images, audio and binary resources are never stored: they stay in the
   response next to the notice.
