@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/banda-larga/ctxtual/main/assets/logo-dark.svg">
-    <img alt="ctxtual" src="https://raw.githubusercontent.com/banda-larga/ctxtual/main/assets/logo.svg" width="380">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/banda-larga/ctxtual/dc6e4aef43f3b1e57bda109d145288b7f17c89bf/assets/logo-dark.svg">
+    <img alt="ctxtual" src="https://raw.githubusercontent.com/banda-larga/ctxtual/dc6e4aef43f3b1e57bda109d145288b7f17c89bf/assets/logo.svg" width="380">
   </picture>
 </p>
 
